@@ -78,37 +78,48 @@ def fetch_simplefin(start_date: Optional[date] = None) -> dict:
 # Apply payee rules
 # ─────────────────────────────────────────────
 
-def apply_payee_rules(cur, txn_ids: list[str]) -> int:
+def apply_payee_rules(cur, txn_ids: list[str] = None) -> int:
     """
-    For each transaction id in txn_ids where category_manual=False,
-    find the first matching payee rule (by priority desc) and apply it.
+    Apply payee rules to uncategorized transactions.
+    If txn_ids is provided, only check those. Otherwise check ALL uncategorized.
+    Matches against BOTH description and payee fields.
     Returns count of transactions categorized.
     """
-    if not txn_ids:
-        return 0
-
     cur.execute("SELECT id, match_pattern, payee_name, category_id FROM payee_rules ORDER BY priority DESC, id")
     rules = cur.fetchall()
 
     if not rules:
         return 0
 
-    # Fetch uncategorized (or auto-categorized) transactions from the batch
-    placeholders = ",".join(["%s"] * len(txn_ids))
-    cur.execute(
-        f"""SELECT id, description FROM transactions
-            WHERE id IN ({placeholders}) AND category_manual = FALSE""",
-        txn_ids,
-    )
+    # Fetch uncategorized transactions
+    if txn_ids:
+        placeholders = ",".join(["%s"] * len(txn_ids))
+        cur.execute(
+            f"""SELECT id, description, payee FROM transactions
+                WHERE id IN ({placeholders}) AND category_id IS NULL AND category_manual = FALSE""",
+            txn_ids,
+        )
+    else:
+        cur.execute(
+            """SELECT id, description, payee FROM transactions
+               WHERE category_id IS NULL AND category_manual = FALSE"""
+        )
     txns = cur.fetchall()
 
+    if not txns:
+        return 0
+
     categorized = 0
-    for txn_id, description in txns:
-        if not description:
+    for txn_id, description, payee in txns:
+        # Build searchable text from both fields
+        search_text = " ".join(filter(None, [
+            (description or "").lower(),
+            (payee or "").lower(),
+        ]))
+        if not search_text.strip():
             continue
-        desc_lower = description.lower()
         for rule_id, pattern, payee_name, category_id in rules:
-            if pattern.lower() in desc_lower:
+            if pattern and pattern.lower() in search_text:
                 cur.execute(
                     """UPDATE transactions
                        SET category_id = %s,
@@ -217,8 +228,8 @@ def run_sync(conn: psycopg2.extensions.connection, start_date: Optional[date] = 
 
         conn.commit()
 
-        # Apply payee rules to new transactions only
-        categorized = apply_payee_rules(cur, new_txn_ids)
+        # Apply payee rules to ALL uncategorized transactions
+        categorized = apply_payee_rules(cur)
         conn.commit()
 
         logger.info(

@@ -326,10 +326,29 @@ class PayeeRuleCreate(BaseModel):
 def create_payee_rule(body: PayeeRuleCreate):
     conn = db_conn()
     try:
-        cur = conn.cursor(); cur.execute("INSERT INTO payee_rules (match_pattern, payee_name, category_id, priority) VALUES (%s, %s, %s, %s) RETURNING id", (body.match_pattern.lower(), body.payee_name, body.category_id, body.priority))
-        new_id = cur.fetchone()[0]; conn.commit()
+        cur = conn.cursor()
+        pattern = body.match_pattern.lower().strip()
+        # Dedup: skip if exact pattern already exists
+        cur.execute("SELECT id FROM payee_rules WHERE match_pattern = %s", (pattern,))
+        existing = cur.fetchone()
+        if existing:
+            # Update category if different
+            cur.execute("UPDATE payee_rules SET category_id = COALESCE(%s, category_id), payee_name = COALESCE(%s, payee_name) WHERE id = %s", (body.category_id, body.payee_name, existing[0]))
+            new_id = existing[0]
+        else:
+            cur.execute("INSERT INTO payee_rules (match_pattern, payee_name, category_id, priority) VALUES (%s, %s, %s, %s) RETURNING id", (pattern, body.payee_name, body.category_id, body.priority))
+            new_id = cur.fetchone()[0]
+        # Retroactively apply this rule to existing uncategorized transactions
+        search_pattern = pattern
+        cur.execute("""UPDATE transactions SET category_id = %s, payee = COALESCE(%s, payee), updated_at = NOW()
+            WHERE category_id IS NULL AND category_manual = FALSE
+            AND (lower(description) LIKE %s OR lower(COALESCE(payee,'')) LIKE %s)""",
+            (body.category_id, body.payee_name, f"%{search_pattern}%", f"%{search_pattern}%"))
+        retro = cur.rowcount
+        conn.commit()
+        logger.info("Rule %s (pattern=%s): retroactively categorized %d transactions", new_id, pattern, retro)
     finally: db_put(conn)
-    return {"id": new_id}
+    return {"id": new_id, "retroactive": retro}
 
 @app.delete("/api/payee-rules/{rule_id}")
 def delete_payee_rule(rule_id: int):
