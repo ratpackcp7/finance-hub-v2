@@ -254,6 +254,7 @@
   <a data-page="transactions">Transactions</a>
   <a data-page="rules">Rules</a>
   <a data-page="settings">Settings</a>
+  <a data-page="imports">Imports</a>
   <a data-page="subscriptions">Subs</a>
   <div class="nav-sync"><div class="sync-dot" id="sync-dot" title="Sync status"></div><button class="btn btn-ghost btn-sm" onclick="triggerSync()" id="sync-btn">Sync</button></div>
 </nav>
@@ -324,6 +325,29 @@
   <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem"><div class="card-title" style="margin:0">Monthly Budgets</div><button class="btn btn-primary btn-sm" onclick="openBudgetModal()">+ Set Budget</button></div><p style="font-size:.8rem;color:#64748b;margin-bottom:1rem">Set monthly spending targets per category. Progress shown on dashboard.</p><div id="budget-list"><p class="empty">Loading...</p></div></div>
 </div>
 <div class="page" id="page-subscriptions"><div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem"><div class="card-title" style="margin:0">Detected Recurring Charges</div><button class="btn btn-ghost btn-sm" onclick="loadSubscriptions()">↻ Refresh</button></div><p style="font-size:.8rem;color:#64748b;margin-bottom:1rem">Auto-detected subscriptions based on monthly cadence and consistent amounts.</p><div id="subs-totals" style="display:flex;gap:1.5rem;margin-bottom:1rem"></div><div id="subs-list"><p class="empty">Loading...</p></div></div></div>
+<div class="page" id="page-imports">
+  <div class="grid-2" style="margin-bottom:1rem">
+    <div class="stat"><div class="stat-label">Pending Duplicates</div><div class="stat-value" id="imp-dupe-count">—</div></div>
+    <div class="stat"><div class="stat-label">Total Import Batches</div><div class="stat-value" id="imp-batch-count">—</div></div>
+  </div>
+
+  <div class="card" id="dupe-review-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+      <div class="card-title" style="margin:0">Duplicate Review</div>
+      <button class="btn btn-ghost btn-sm" onclick="loadDupes()">↻ Refresh</button>
+    </div>
+    <p style="font-size:.8rem;color:#64748b;margin-bottom:1rem">Transactions flagged as possible duplicates during import. Review each pair and choose an action.</p>
+    <div id="dupe-list"><p class="empty">Loading...</p></div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+      <div class="card-title" style="margin:0">Import History</div>
+      <button class="btn btn-ghost btn-sm" onclick="loadBatches()">↻ Refresh</button>
+    </div>
+    <div id="batch-list"><p class="empty">Loading...</p></div>
+  </div>
+</div>
 <!-- Modals -->
 <div class="modal-bg" id="modal-txn"><div class="modal">
   <div class="modal-header"><h3>Transaction Details</h3><button class="modal-close" onclick="closeModal('modal-txn')">✕</button></div>
@@ -362,6 +386,7 @@
   <a data-page="rules"><span class="bnav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></span><span>Rules</span></a>
   <a data-page="settings"><span class="bnav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span>Setup</span></a>
   <a data-page="subscriptions"><span class="bnav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span><span>Subs</span></a>
+  <a data-page="imports"><span class="bnav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span><span>Import</span></a>
 </nav>
 <script>
 const $=id=>document.getElementById(id);const fmt=n=>n==null?'—':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n);const fmtDate=s=>s?s.slice(0,10):'—';
@@ -369,7 +394,7 @@ async function api(path,opts={}){const r=await fetch(path,{headers:{'Content-Typ
 function closeModal(id){$(id).classList.remove('open');}function openModal(id){$(id).classList.add('open');}
 document.querySelectorAll('nav a[data-page]').forEach(a=>{a.addEventListener('click',()=>showPage(a.dataset.page));});
 function showPage(name){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.querySelectorAll('nav a[data-page]').forEach(a=>a.classList.remove('active'));$(`page-${name}`).classList.add('active');document.querySelector(`nav a[data-page="${name}"]`)?.classList.add('active');
-document.querySelectorAll('.bottom-nav a').forEach(a=>a.classList.toggle('active',a.dataset.page===name));if(name==='dashboard'){loadDashboard();loadSankey();}if(name==='spending')loadSpending();if(name==='transactions'){loadCategories();loadAccounts();loadTxns();}if(name==='rules'){loadRules();loadCategories();}if(name==='settings'){loadAccountsSettings();loadCategoriesSettings();loadBudgetSettings();}if(name==='subscriptions')loadSubscriptions();}
+document.querySelectorAll('.bottom-nav a').forEach(a=>a.classList.toggle('active',a.dataset.page===name));if(name==='dashboard'){loadDashboard();loadSankey();}if(name==='spending')loadSpending();if(name==='transactions'){loadCategories();loadAccounts();loadTxns();}if(name==='rules'){loadRules();loadCategories();}if(name==='settings'){loadAccountsSettings();loadCategoriesSettings();loadBudgetSettings();}if(name==='subscriptions')loadSubscriptions();if(name==='imports')loadImportsPage();}
 let syncPollTimer=null;
 async function triggerSync(){$('sync-btn').disabled=true;try{await api('/api/sync',{method:'POST',body:JSON.stringify({})});pollSyncStatus();}catch(e){alert('Sync error: '+e.message);$('sync-btn').disabled=false;}}
 async function pollSyncStatus(){clearTimeout(syncPollTimer);const dot=$('sync-dot');try{const s=await api('/api/sync/status');if(s.running){dot.className='sync-dot running';$('sync-btn').disabled=true;syncPollTimer=setTimeout(pollSyncStatus,2000);}else{dot.className='sync-dot ok';$('sync-btn').disabled=false;const active=document.querySelector('.page.active')?.id?.replace('page-','');if(active)showPage(active);}}catch(e){dot.className='sync-dot error';$('sync-btn').disabled=false;}}
@@ -630,6 +655,99 @@ function renderSankey(d){
 }
 
 loadCategories();loadDashboard();loadSankey();
+
+/* ═══ IMPORTS & DUPE REVIEW ═══ */
+async function loadImportsPage() { loadDupeStats(); loadDupes(); loadBatches(); }
+
+async function loadDupeStats() {
+  try {
+    const stats = await api('/api/duplicates/stats');
+    $('imp-dupe-count').textContent = stats.pending || '0';
+    $('imp-dupe-count').style.color = stats.pending > 0 ? '#fbbf24' : '#86efac';
+  } catch(e) { console.error('Dupe stats:', e); }
+  try {
+    const batches = await api('/api/import-batches?limit=1');
+    $('imp-batch-count').textContent = batches.length > 0 ? batches[0].id : '0';
+  } catch(e) { console.error('Batch count:', e); }
+}
+
+async function loadDupes() {
+  try {
+    const dupes = await api('/api/duplicates?status=pending&limit=50');
+    if (!dupes.length) {
+      $('dupe-list').innerHTML = '<p class="empty" style="color:#86efac">No pending duplicates.</p>';
+      return;
+    }
+    $('dupe-list').innerHTML = dupes.map(d => {
+      const n = d.new_txn, e = d.existing_txn;
+      return `<div style="border:1px solid #1e2530;border-radius:8px;padding:.8rem;margin-bottom:.6rem;background:#0f1117">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.5rem;flex-wrap:wrap;gap:.3rem">
+          <span style="font-size:.72rem;color:#fbbf24;font-weight:500">\u26a0 Possible Duplicate</span>
+          <span style="font-size:.7rem;color:#475569">Batch #${d.batch_id}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-bottom:.6rem">
+          <div style="padding:.5rem;background:#161b27;border-radius:6px">
+            <div style="font-size:.68rem;color:#475569;margin-bottom:.2rem">NEW (imported)</div>
+            <div style="font-size:.82rem;color:#e2e8f0">${n.payee||n.description||'\u2014'}</div>
+            <div style="font-size:.75rem;color:#64748b">${n.account} \u00b7 ${n.posted||''}</div>
+            <div class="${n.amount<0?'amt-neg':'amt-pos'}" style="font-size:.88rem;font-weight:600">${fmt(n.amount)}</div>
+          </div>
+          <div style="padding:.5rem;background:#161b27;border-radius:6px">
+            <div style="font-size:.68rem;color:#475569;margin-bottom:.2rem">EXISTING</div>
+            <div style="font-size:.82rem;color:#e2e8f0">${e.payee||e.description||'\u2014'}</div>
+            <div style="font-size:.75rem;color:#64748b">${e.account} \u00b7 ${e.posted||''}</div>
+            <div class="${e.amount<0?'amt-neg':'amt-pos'}" style="font-size:.88rem;font-weight:600">${fmt(e.amount)}</div>
+          </div>
+        </div>
+        <div style="font-size:.72rem;color:#475569;margin-bottom:.5rem">${d.reason}</div>
+        <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+          <button class="btn btn-success btn-sm" onclick="resolveDupe(${d.id},'keep_both')">Keep Both</button>
+          <button class="btn btn-danger btn-sm" onclick="resolveDupe(${d.id},'remove_new')">Remove New</button>
+          <button class="btn btn-warning btn-sm" onclick="resolveDupe(${d.id},'remove_existing')">Remove Existing</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(err) {
+    $('dupe-list').innerHTML = `<p class="empty" style="color:#fca5a5">Error: ${err.message}</p>`;
+  }
+}
+
+async function resolveDupe(flagId, action) {
+  try {
+    await api('/api/duplicates/' + flagId + '/resolve', {
+      method: 'POST', body: JSON.stringify({ action })
+    });
+    loadDupes(); loadDupeStats();
+  } catch(err) { alert('Error: ' + err.message); }
+}
+
+async function loadBatches() {
+  try {
+    const batches = await api('/api/import-batches?limit=20');
+    if (!batches.length) {
+      $('batch-list').innerHTML = '<p class="empty">No imports yet. Sync to create the first batch.</p>';
+      return;
+    }
+    $('batch-list').innerHTML = `<table><thead><tr>
+      <th>Batch</th><th>Time</th><th>Status</th><th>Accts</th><th>Added</th><th>Updated</th><th>Dupes</th><th>Error</th>
+      </tr></thead><tbody>${batches.map(b => {
+        const sc = b.status==='ok'?'background:#14532d;color:#86efac':b.status==='error'?'background:#450a0a;color:#fca5a5':'background:#1e2530;color:#94a3b8';
+        const t = b.finished_at ? new Date(b.finished_at).toLocaleString() : '\u2014';
+        return `<tr>
+          <td style="font-weight:500">#${b.id}</td>
+          <td style="font-size:.75rem;color:#64748b;white-space:nowrap">${t}</td>
+          <td><span class="badge" style="${sc}">${b.status}</span></td>
+          <td>${b.accounts_seen||0}</td>
+          <td style="color:#86efac">${b.txns_added||0}</td>
+          <td>${b.txns_updated||0}</td>
+          <td style="${b.dupes_flagged>0?'color:#fbbf24;font-weight:600':'color:#64748b'}">${b.dupes_flagged||0}</td>
+          <td style="font-size:.72rem;color:#ef4444;max-width:200px;overflow:hidden;text-overflow:ellipsis">${b.error_message||''}</td>
+        </tr>`;
+      }).join('')}</tbody></table>`;
+  } catch(err) {
+    $('batch-list').innerHTML = `<p class="empty" style="color:#fca5a5">Error: ${err.message}</p>`;
+  }
+}
 </script>
 
 <!-- Feedback FAB -->
