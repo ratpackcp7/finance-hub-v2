@@ -58,6 +58,24 @@ def get_pool():
 # Scheduled job
 # ─────────────────────────────────────────────
 
+def take_balance_snapshot(conn):
+    """Record current account balances. Idempotent per date."""
+    cur = conn.cursor()
+    today = date.today()
+    cur.execute("""
+        INSERT INTO balance_snapshots (snapshot_date, account_id, account_name, account_type, balance)
+        SELECT %s, id, name, COALESCE(account_type, 'checking'), balance
+        FROM accounts WHERE hidden = FALSE AND balance IS NOT NULL
+        ON CONFLICT (snapshot_date, account_id) DO UPDATE SET
+            balance = EXCLUDED.balance,
+            account_name = EXCLUDED.account_name,
+            account_type = EXCLUDED.account_type
+    """, (today,))
+    count = cur.rowcount
+    conn.commit()
+    logger.info("Balance snapshot: %d accounts for %s", count, today)
+    return count
+
 def scheduled_sync():
     logger.info("Scheduled sync starting")
     pool = get_pool()
@@ -65,6 +83,11 @@ def scheduled_sync():
     try:
         result = run_sync(conn)
         logger.info("Scheduled sync result: %s", result)
+        # Take balance snapshot after successful sync
+        try:
+            take_balance_snapshot(conn)
+        except Exception as e:
+            logger.error("Balance snapshot failed: %s", e)
     except Exception as e:
         logger.error("Scheduled sync failed: %s", e)
     finally:

@@ -5,10 +5,13 @@ Shared by both the worker (scheduled) and the app (manual trigger via API).
 Flow:
   1. Read ACCESS_URL from /run/secrets/simplefin_access_url
   2. GET {ACCESS_URL}/accounts?start-date=<epoch>
-  3. Upsert accounts
-  4. Upsert transactions (skip category_id if category_manual=True)
-  5. Apply payee rules to any uncategorized transactions
-  6. Write sync_log row
+  3. Create import_batch record + store raw payload
+  4. Upsert accounts
+  5. Upsert transactions (skip category_id if category_manual=True)
+     - Tag new txns with import_batch_id
+     - Detect near-duplicates and flag for review
+  6. Apply payee rules to any uncategorized transactions
+  7. Close import_batch + sync_log rows
 """
 
 import json
@@ -44,11 +47,6 @@ def read_secret(name: str) -> str:
 # ─────────────────────────────────────────────
 
 def fetch_simplefin(start_date: Optional[date] = None) -> dict:
-    """
-    Pull accounts + transactions from SimpleFIN.
-    start_date: fetch transactions from this date onward (defaults to 90 days ago).
-    Returns the raw JSON dict from SimpleFIN.
-    """
     access_url = read_secret("simplefin_access_url").rstrip("/")
 
     if start_date is None:
@@ -67,7 +65,6 @@ def fetch_simplefin(start_date: Optional[date] = None) -> dict:
 
     data = resp.json()
 
-    # Surface any errors SimpleFIN includes in the response
     for err in data.get("errors", []):
         logger.warning("SimpleFIN error: %s", err)
 
@@ -79,19 +76,12 @@ def fetch_simplefin(start_date: Optional[date] = None) -> dict:
 # ─────────────────────────────────────────────
 
 def apply_payee_rules(cur, txn_ids: list[str] = None) -> int:
-    """
-    Apply payee rules to uncategorized transactions.
-    If txn_ids is provided, only check those. Otherwise check ALL uncategorized.
-    Matches against BOTH description and payee fields.
-    Returns count of transactions categorized.
-    """
     cur.execute("SELECT id, match_pattern, payee_name, category_id FROM payee_rules ORDER BY priority DESC, id")
     rules = cur.fetchall()
 
     if not rules:
         return 0
 
-    # Fetch uncategorized transactions
     if txn_ids:
         placeholders = ",".join(["%s"] * len(txn_ids))
         cur.execute(
@@ -111,7 +101,6 @@ def apply_payee_rules(cur, txn_ids: list[str] = None) -> int:
 
     categorized = 0
     for txn_id, description, payee in txns:
-        # Build searchable text from both fields
         search_text = " ".join(filter(None, [
             (description or "").lower(),
             (payee or "").lower(),
@@ -129,9 +118,57 @@ def apply_payee_rules(cur, txn_ids: list[str] = None) -> int:
                     (category_id, payee_name, txn_id),
                 )
                 categorized += 1
-                break  # first match wins
+                break
 
     return categorized
+
+
+# ─────────────────────────────────────────────
+# Near-duplicate detection
+# ─────────────────────────────────────────────
+
+def detect_near_dupes(cur, txn_id: str, account_id: str, amount: float,
+                      posted: date, batch_id: int) -> bool:
+    """
+    After inserting a new transaction, check if an existing transaction
+    in the same account looks like a duplicate:
+      - Same account
+      - Amount within $0.02
+      - Date within +/-1 day
+      - Different SimpleFIN ID
+
+    If found, insert a row in duplicate_flags. Returns True if flagged.
+    """
+    cur.execute(
+        """SELECT id, posted, amount, description
+           FROM transactions
+           WHERE account_id = %s
+             AND id != %s
+             AND ABS(amount - %s) < 0.02
+             AND posted BETWEEN %s AND %s
+           LIMIT 1""",
+        (account_id, txn_id, amount,
+         posted - timedelta(days=1), posted + timedelta(days=1)),
+    )
+    existing = cur.fetchone()
+
+    if existing:
+        dup_id, dup_posted, dup_amount, dup_desc = existing
+        reason = (
+            f"Same account, amount ${abs(amount):.2f} vs ${abs(float(dup_amount)):.2f}, "
+            f"dates {posted} vs {dup_posted}"
+        )
+        cur.execute(
+            """INSERT INTO duplicate_flags
+                 (txn_id, duplicate_of, reason, status, batch_id)
+               VALUES (%s, %s, %s, 'pending', %s)
+               ON CONFLICT DO NOTHING""",
+            (txn_id, dup_id, reason, batch_id),
+        )
+        logger.info("Flagged near-dupe: %s <-> %s (%s)", txn_id, dup_id, reason)
+        return True
+
+    return False
 
 
 # ─────────────────────────────────────────────
@@ -140,23 +177,37 @@ def apply_payee_rules(cur, txn_ids: list[str] = None) -> int:
 
 def run_sync(conn: psycopg2.extensions.connection, start_date: Optional[date] = None) -> dict:
     """
-    Full sync: fetch SimpleFIN → upsert accounts + transactions → apply rules.
-    Returns a summary dict.
+    Full sync: fetch SimpleFIN -> upsert accounts + transactions -> apply rules.
+    Creates an import_batch record for tracking + raw payload preservation.
+    Also writes to sync_log for backward compatibility.
     """
     cur = conn.cursor()
 
-    # Open sync log entry
+    # ── Create import batch ──
+    cur.execute(
+        "INSERT INTO import_batches (status, source) VALUES ('running', 'simplefin') RETURNING id",
+    )
+    batch_id = cur.fetchone()[0]
+
+    # ── Backward-compat: also open sync_log entry ──
     cur.execute(
         "INSERT INTO sync_log (status) VALUES ('running') RETURNING id",
     )
     log_id = cur.fetchone()[0]
     conn.commit()
 
-    accounts_seen = txns_added = txns_updated = 0
+    accounts_seen = txns_added = txns_updated = txns_skipped = dupes_flagged = 0
 
     try:
         data = fetch_simplefin(start_date)
         new_txn_ids = []
+
+        # ── Store raw payload in import batch ──
+        cur.execute(
+            "UPDATE import_batches SET raw_payload = %s WHERE id = %s",
+            (json.dumps(data), batch_id),
+        )
+        conn.commit()
 
         for acct in data.get("accounts", []):
             accounts_seen += 1
@@ -168,7 +219,6 @@ def run_sync(conn: psycopg2.extensions.connection, start_date: Optional[date] = 
             balance = float(balance_raw) if balance_raw is not None else None
             balance_dt = datetime.fromtimestamp(balance_date_raw) if balance_date_raw else None
 
-            # Upsert account
             cur.execute(
                 """INSERT INTO accounts (id, name, currency, balance, balance_date, org_name, org_domain)
                    VALUES (%s, %s, %s, %s, %s, %s, %s)
@@ -190,7 +240,6 @@ def run_sync(conn: psycopg2.extensions.connection, start_date: Optional[date] = 
                 ),
             )
 
-            # Upsert transactions
             for txn in acct.get("transactions", []):
                 txn_id = txn["id"]
                 posted_raw = txn.get("posted") or txn.get("transacted_at")
@@ -199,21 +248,25 @@ def run_sync(conn: psycopg2.extensions.connection, start_date: Optional[date] = 
                 description = txn.get("description", "").strip()
                 pending = txn.get("pending", False)
 
-                # Check if already exists
                 cur.execute("SELECT id, category_manual FROM transactions WHERE id = %s", (txn_id,))
                 existing = cur.fetchone()
 
                 if existing is None:
                     cur.execute(
                         """INSERT INTO transactions
-                             (id, account_id, posted, amount, description, pending, raw)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                        (txn_id, acct_id, posted, amount, description, pending, json.dumps(txn)),
+                             (id, account_id, posted, amount, description, pending, raw, import_batch_id)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                        (txn_id, acct_id, posted, amount, description, pending,
+                         json.dumps(txn), batch_id),
                     )
                     new_txn_ids.append(txn_id)
                     txns_added += 1
+
+                    # ── Near-duplicate detection ──
+                    if detect_near_dupes(cur, txn_id, acct_id, amount, posted, batch_id):
+                        dupes_flagged += 1
+
                 else:
-                    # Update amount/pending/description but never overwrite manual category
                     cur.execute(
                         """UPDATE transactions SET
                              amount      = %s,
@@ -228,16 +281,29 @@ def run_sync(conn: psycopg2.extensions.connection, start_date: Optional[date] = 
 
         conn.commit()
 
-        # Apply payee rules to ALL uncategorized transactions
         categorized = apply_payee_rules(cur)
         conn.commit()
 
         logger.info(
-            "Sync complete: accounts=%d added=%d updated=%d auto-categorized=%d",
-            accounts_seen, txns_added, txns_updated, categorized,
+            "Sync complete: batch=%d accounts=%d added=%d updated=%d dupes_flagged=%d auto-categorized=%d",
+            batch_id, accounts_seen, txns_added, txns_updated, dupes_flagged, categorized,
         )
 
-        # Close sync log
+        # ── Close import batch ──
+        cur.execute(
+            """UPDATE import_batches SET
+                 status        = 'ok',
+                 finished_at   = NOW(),
+                 accounts_seen = %s,
+                 txns_added    = %s,
+                 txns_updated  = %s,
+                 txns_skipped  = %s,
+                 dupes_flagged = %s
+               WHERE id = %s""",
+            (accounts_seen, txns_added, txns_updated, txns_skipped, dupes_flagged, batch_id),
+        )
+
+        # ── Backward-compat: close sync_log ──
         cur.execute(
             """UPDATE sync_log SET
                  status        = 'ok',
@@ -252,15 +318,23 @@ def run_sync(conn: psycopg2.extensions.connection, start_date: Optional[date] = 
 
         return {
             "status": "ok",
+            "batch_id": batch_id,
             "accounts_seen": accounts_seen,
             "txns_added": txns_added,
             "txns_updated": txns_updated,
+            "txns_skipped": txns_skipped,
+            "dupes_flagged": dupes_flagged,
             "auto_categorized": categorized,
         }
 
     except Exception as exc:
         conn.rollback()
         logger.error("Sync failed: %s", exc, exc_info=True)
+
+        cur.execute(
+            "UPDATE import_batches SET status='error', finished_at=NOW(), error_message=%s WHERE id=%s",
+            (str(exc), batch_id),
+        )
         cur.execute(
             "UPDATE sync_log SET status='error', finished_at=NOW(), error_message=%s WHERE id=%s",
             (str(exc), log_id),

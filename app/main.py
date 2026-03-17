@@ -62,6 +62,54 @@ def run_migrations():
             id SERIAL PRIMARY KEY, type TEXT NOT NULL DEFAULT 'feature',
             message TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW(),
             notion_page_id TEXT DEFAULT NULL)""")
+        # Net worth history snapshots
+        cur.execute("""CREATE TABLE IF NOT EXISTS balance_snapshots (
+            id SERIAL PRIMARY KEY,
+            snapshot_date DATE NOT NULL,
+            account_id TEXT NOT NULL,
+            account_name TEXT,
+            account_type TEXT,
+            balance NUMERIC(15,2),
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE(snapshot_date, account_id))""")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_snap_date ON balance_snapshots(snapshot_date)")
+        # Multi-user prep: household_id on all major tables (default='default')
+        for tbl in ("accounts", "transactions", "categories", "payee_rules", "budgets", "feedback", "balance_snapshots"):
+            cur.execute(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS household_id TEXT NOT NULL DEFAULT 'default'")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_acct_household ON accounts(household_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_txn_household ON transactions(household_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cat_household ON categories(household_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_rules_household ON payee_rules(household_id)")
+        
+        # ── Import batch tracking (P0 — import integrity) ──
+        cur.execute("""CREATE TABLE IF NOT EXISTS import_batches (
+            id SERIAL PRIMARY KEY,
+            started_at TIMESTAMPTZ DEFAULT NOW(),
+            finished_at TIMESTAMPTZ,
+            status TEXT NOT NULL DEFAULT 'running',
+            source TEXT NOT NULL DEFAULT 'simplefin',
+            raw_payload JSONB,
+            accounts_seen INT DEFAULT 0,
+            txns_added INT DEFAULT 0,
+            txns_updated INT DEFAULT 0,
+            txns_skipped INT DEFAULT 0,
+            dupes_flagged INT DEFAULT 0,
+            error_message TEXT
+        )""")
+        cur.execute("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS import_batch_id INT")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_txn_batch ON transactions(import_batch_id)")
+        cur.execute("""CREATE TABLE IF NOT EXISTS duplicate_flags (
+            id SERIAL PRIMARY KEY,
+            txn_id TEXT NOT NULL,
+            duplicate_of TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            batch_id INT,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )""")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_dupe_status ON duplicate_flags(status)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_dupe_batch ON duplicate_flags(batch_id)")
+
         conn.commit(); logger.info("Migrations complete")
     except Exception as e: conn.rollback(); logger.error("Migration failed: %s", e)
     finally: db_put(conn)
@@ -155,8 +203,60 @@ def net_worth():
     groups = [{"type": r[0], "total": float(r[1]), "count": r[2]} for r in rows]
     return {"groups": groups, "net_worth": sum(g["total"] for g in groups)}
 
+def _take_snapshot(conn):
+    """Record current account balances as a daily snapshot. Idempotent per date."""
+    cur = conn.cursor()
+    today = date.today()
+    cur.execute("""
+        INSERT INTO balance_snapshots (snapshot_date, account_id, account_name, account_type, balance)
+        SELECT %s, id, name, COALESCE(account_type, 'checking'), balance
+        FROM accounts WHERE hidden = FALSE AND balance IS NOT NULL
+        ON CONFLICT (snapshot_date, account_id) DO UPDATE SET
+            balance = EXCLUDED.balance,
+            account_name = EXCLUDED.account_name,
+            account_type = EXCLUDED.account_type
+    """, (today,))
+    count = cur.rowcount
+    conn.commit()
+    logger.info("Balance snapshot: %d accounts recorded for %s", count, today)
+    return count
+
+@app.post("/api/snapshots/take")
+def take_snapshot():
+    conn = db_conn()
+    try:
+        count = _take_snapshot(conn)
+    finally: db_put(conn)
+    return {"status": "ok", "accounts": count, "date": date.today().isoformat()}
+
+@app.get("/api/net-worth/history")
+def net_worth_history(months: int = 12):
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cutoff = date.today() - timedelta(days=months * 31)
+        cur.execute("""
+            SELECT snapshot_date, COALESCE(account_type, 'checking'), SUM(balance)
+            FROM balance_snapshots
+            WHERE snapshot_date >= %s
+            GROUP BY snapshot_date, account_type
+            ORDER BY snapshot_date ASC
+        """, (cutoff,))
+        rows = cur.fetchall()
+    finally: db_put(conn)
+    # Group by date
+    by_date = {}
+    for snap_date, acct_type, total in rows:
+        d = snap_date.isoformat()
+        if d not in by_date:
+            by_date[d] = {"date": d, "groups": {}, "net_worth": 0}
+        by_date[d]["groups"][acct_type] = float(total)
+        by_date[d]["net_worth"] += float(total)
+    result = sorted(by_date.values(), key=lambda x: x["date"])
+    return {"history": result, "months": months}
+
 # ── Transactions ──
-def _txn_filters(account_id=None, category_id=None, start_date=None, end_date=None, search=None, pending=None, exclude_transfers=False):
+def _txn_filters(account_id=None, category_id=None, start_date=None, end_date=None, search=None, pending=None, exclude_transfers=False, txn_type=None):
     filters, params = [], []
     if account_id: filters.append("t.account_id = %s"); params.append(account_id)
     if category_id is not None: filters.append("t.category_id = %s"); params.append(category_id)
@@ -167,21 +267,40 @@ def _txn_filters(account_id=None, category_id=None, start_date=None, end_date=No
         params += [f"%{search.lower()}%", f"%{search.lower()}%"]
     if pending is not None: filters.append("t.pending = %s"); params.append(pending)
     if exclude_transfers: filters.append("t.is_transfer = FALSE")
+    if txn_type == "debit": filters.append("t.amount < 0")
+    elif txn_type == "credit": filters.append("t.amount > 0")
     return filters, params
 
 @app.get("/api/transactions")
-def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str] = None, category_id: Optional[int] = None, start_date: Optional[date] = None, end_date: Optional[date] = None, search: Optional[str] = None, pending: Optional[bool] = None):
+def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str] = None, category_id: Optional[int] = None, start_date: Optional[date] = None, end_date: Optional[date] = None, search: Optional[str] = None, pending: Optional[bool] = None, txn_type: Optional[str] = None):
     conn = db_conn()
     try:
         cur = conn.cursor()
-        filters, params = _txn_filters(account_id, category_id, start_date, end_date, search, pending)
+        filters, params = _txn_filters(account_id, category_id, start_date, end_date, search, pending, txn_type=txn_type)
         where = ("WHERE " + " AND ".join(filters)) if filters else ""
-        cur.execute(f"SELECT t.id, t.account_id, a.name, t.posted, t.amount, t.description, t.payee, t.category_id, c.name, t.category_manual, t.pending, t.notes, t.is_transfer FROM transactions t JOIN accounts a ON t.account_id = a.id LEFT JOIN categories c ON t.category_id = c.id {where} ORDER BY t.posted DESC, t.id LIMIT %s OFFSET %s", params + [limit, offset])
+        if account_id:
+            cur.execute(f"""
+                WITH bal AS (
+                    SELECT id, SUM(amount) OVER (ORDER BY posted ASC, id ASC) AS running_balance
+                    FROM transactions WHERE account_id = %s
+                )
+                SELECT t.id, t.account_id, a.name, t.posted, t.amount, t.description, t.payee,
+                       t.category_id, c.name, t.category_manual, t.pending, t.notes, t.is_transfer,
+                       bal.running_balance
+                FROM transactions t
+                JOIN accounts a ON t.account_id = a.id
+                LEFT JOIN categories c ON t.category_id = c.id
+                LEFT JOIN bal ON t.id = bal.id
+                {where}
+                ORDER BY t.posted DESC, t.id
+                LIMIT %s OFFSET %s""", [account_id] + params + [limit, offset])
+        else:
+            cur.execute(f"SELECT t.id, t.account_id, a.name, t.posted, t.amount, t.description, t.payee, t.category_id, c.name, t.category_manual, t.pending, t.notes, t.is_transfer, NULL as running_balance FROM transactions t JOIN accounts a ON t.account_id = a.id LEFT JOIN categories c ON t.category_id = c.id {where} ORDER BY t.posted DESC, t.id LIMIT %s OFFSET %s", params + [limit, offset])
         rows = cur.fetchall()
         cur.execute(f"SELECT COUNT(*) FROM transactions t {where}", params)
         total = cur.fetchone()[0]
     finally: db_put(conn)
-    return {"total": total, "limit": limit, "offset": offset, "transactions": [{"id": r[0], "account_id": r[1], "account_name": r[2], "posted": r[3].isoformat() if r[3] else None, "amount": float(r[4]) if r[4] is not None else None, "description": r[5], "payee": r[6], "category_id": r[7], "category": r[8], "category_manual": r[9], "pending": r[10], "notes": r[11], "is_transfer": r[12]} for r in rows]}
+    return {"total": total, "limit": limit, "offset": offset, "has_balance": account_id is not None, "transactions": [{"id": r[0], "account_id": r[1], "account_name": r[2], "posted": r[3].isoformat() if r[3] else None, "amount": float(r[4]) if r[4] is not None else None, "description": r[5], "payee": r[6], "category_id": r[7], "category": r[8], "category_manual": r[9], "pending": r[10], "notes": r[11], "is_transfer": r[12], "running_balance": float(r[13]) if r[13] is not None else None} for r in rows]}
 
 @app.get("/api/transactions/export")
 def export_transactions(account_id: Optional[str] = None, category_id: Optional[int] = None, start_date: Optional[date] = None, end_date: Optional[date] = None, search: Optional[str] = None):
@@ -418,6 +537,38 @@ def spending_deltas(start_date: Optional[date] = None, end_date: Optional[date] 
     tc = sum(r["current"] for r in results); tp = sum(r["previous"] for r in results)
     return {"deltas": results, "totals": {"current": round(tc, 2), "previous": round(tp, 2), "delta": round(tc - tp, 2)}, "period": {"current": {"start": start_date.isoformat(), "end": end_date.isoformat()}, "previous": {"start": ps.isoformat(), "end": pe.isoformat()}}}
 
+
+# ── Spending Flow (Sankey data) ──
+@app.get("/api/spending/flow")
+def spending_flow(start_date: Optional[date] = None, end_date: Optional[date] = None):
+    """Returns income sources and spending categories for Sankey diagram."""
+    now = datetime.now()
+    if not start_date: start_date = date(now.year, now.month, 1)
+    if not end_date: end_date = date(now.year, 12, 31) if now.month == 12 else date(now.year, now.month + 1, 1) - timedelta(days=1)
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        # Income by category
+        cur.execute("""SELECT COALESCE(c.name, 'Other Income'), c.color, SUM(t.amount)
+            FROM transactions t LEFT JOIN categories c ON t.category_id = c.id
+            WHERE t.amount > 0 AND t.pending = FALSE AND t.is_transfer = FALSE
+            AND t.posted >= %s AND t.posted <= %s
+            GROUP BY c.name, c.color ORDER BY 3 DESC""", (start_date, end_date))
+        income = [{"name": r[0], "color": r[1] or "#4ade80", "amount": float(r[2])} for r in cur.fetchall()]
+        # Spending by category
+        cur.execute("""SELECT COALESCE(c.name, 'Uncategorized'), c.color, SUM(ABS(t.amount))
+            FROM transactions t LEFT JOIN categories c ON t.category_id = c.id
+            WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE
+            AND t.posted >= %s AND t.posted <= %s
+            GROUP BY c.name, c.color ORDER BY 3 DESC""", (start_date, end_date))
+        spending = [{"name": r[0], "color": r[1] or "#475569", "amount": float(r[2])} for r in cur.fetchall()]
+    finally: db_put(conn)
+    total_in = sum(i["amount"] for i in income)
+    total_out = sum(s["amount"] for s in spending)
+    net = total_in - total_out
+    return {"income": income, "spending": spending, "total_income": total_in, "total_spending": total_out, "net": net,
+            "period": {"start": start_date.isoformat(), "end": end_date.isoformat()}}
+
 # ── Subscriptions ──
 @app.get("/api/subscriptions/detect")
 def detect_subscriptions(min_months: int = 3, amount_tolerance_pct: float = 15):
@@ -530,6 +681,146 @@ def delete_feedback(fb_id: int):
         cur = conn.cursor(); cur.execute("DELETE FROM feedback WHERE id = %s", (fb_id,)); conn.commit()
     finally: db_put(conn)
     return {"status": "ok"}
+
+
+# ── Import Batches ──
+@app.get("/api/import-batches")
+def list_import_batches(limit: int = 20):
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""SELECT id, started_at, finished_at, status, source,
+                              accounts_seen, txns_added, txns_updated, txns_skipped,
+                              dupes_flagged, error_message
+                       FROM import_batches ORDER BY id DESC LIMIT %s""", (limit,))
+        rows = cur.fetchall()
+    finally: db_put(conn)
+    return [{"id": r[0],
+             "started_at": r[1].isoformat() if r[1] else None,
+             "finished_at": r[2].isoformat() if r[2] else None,
+             "status": r[3], "source": r[4],
+             "accounts_seen": r[5], "txns_added": r[6],
+             "txns_updated": r[7], "txns_skipped": r[8],
+             "dupes_flagged": r[9], "error_message": r[10]} for r in rows]
+
+@app.get("/api/import-batches/{batch_id}")
+def get_import_batch(batch_id: int, include_txns: bool = False):
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""SELECT id, started_at, finished_at, status, source,
+                              accounts_seen, txns_added, txns_updated, txns_skipped,
+                              dupes_flagged, error_message
+                       FROM import_batches WHERE id = %s""", (batch_id,))
+        row = cur.fetchone()
+        if not row: raise HTTPException(status_code=404, detail="Batch not found")
+        batch = {"id": row[0],
+                 "started_at": row[1].isoformat() if row[1] else None,
+                 "finished_at": row[2].isoformat() if row[2] else None,
+                 "status": row[3], "source": row[4],
+                 "accounts_seen": row[5], "txns_added": row[6],
+                 "txns_updated": row[7], "txns_skipped": row[8],
+                 "dupes_flagged": row[9], "error_message": row[10]}
+        txns = []
+        if include_txns:
+            cur.execute("""SELECT t.id, t.account_id, a.name, t.posted, t.amount,
+                                  t.description, t.payee, t.category_id, c.name, t.pending
+                           FROM transactions t
+                           JOIN accounts a ON t.account_id = a.id
+                           LEFT JOIN categories c ON t.category_id = c.id
+                           WHERE t.import_batch_id = %s
+                           ORDER BY t.posted DESC""", (batch_id,))
+            txns = [{"id": r[0], "account_id": r[1], "account_name": r[2],
+                     "posted": r[3].isoformat() if r[3] else None,
+                     "amount": float(r[4]) if r[4] else 0,
+                     "description": r[5], "payee": r[6],
+                     "category_id": r[7], "category": r[8],
+                     "pending": r[9]} for r in cur.fetchall()]
+        dupes = []
+        cur.execute("""SELECT d.id, d.txn_id, d.duplicate_of, d.reason, d.status, d.created_at
+                       FROM duplicate_flags d WHERE d.batch_id = %s ORDER BY d.created_at""",
+                    (batch_id,))
+        dupes = [{"id": r[0], "txn_id": r[1], "duplicate_of": r[2],
+                  "reason": r[3], "status": r[4],
+                  "created_at": r[5].isoformat() if r[5] else None} for r in cur.fetchall()]
+    finally: db_put(conn)
+    batch["transactions"] = txns
+    batch["duplicates"] = dupes
+    return batch
+
+# ── Duplicate Flags ──
+@app.get("/api/duplicates")
+def list_duplicates(status: Optional[str] = "pending", limit: int = 100):
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        where = "WHERE d.status = %s" if status else ""
+        params = [status] if status else []
+        cur.execute(f"""
+            SELECT d.id, d.txn_id, d.duplicate_of, d.reason, d.status,
+                   d.batch_id, d.created_at,
+                   t1.posted, t1.amount, t1.description, t1.payee, a1.name,
+                   t2.posted, t2.amount, t2.description, t2.payee, a2.name
+            FROM duplicate_flags d
+            LEFT JOIN transactions t1 ON d.txn_id = t1.id
+            LEFT JOIN accounts a1 ON t1.account_id = a1.id
+            LEFT JOIN transactions t2 ON d.duplicate_of = t2.id
+            LEFT JOIN accounts a2 ON t2.account_id = a2.id
+            {where}
+            ORDER BY d.created_at DESC LIMIT %s
+        """, params + [limit])
+        rows = cur.fetchall()
+    finally: db_put(conn)
+    return [{"id": r[0], "status": r[4], "batch_id": r[5],
+             "created_at": r[6].isoformat() if r[6] else None,
+             "reason": r[3],
+             "new_txn": {"id": r[1], "posted": r[7].isoformat() if r[7] else None,
+                         "amount": float(r[8]) if r[8] else 0,
+                         "description": r[9], "payee": r[10], "account": r[11]},
+             "existing_txn": {"id": r[2], "posted": r[12].isoformat() if r[12] else None,
+                              "amount": float(r[13]) if r[13] else 0,
+                              "description": r[14], "payee": r[15], "account": r[16]}}
+            for r in rows]
+
+class DupeResolveRequest(BaseModel):
+    action: str  # "keep_both" | "remove_new" | "remove_existing"
+
+@app.post("/api/duplicates/{flag_id}/resolve")
+def resolve_duplicate(flag_id: int, body: DupeResolveRequest):
+    valid_actions = {"keep_both", "remove_new", "remove_existing"}
+    if body.action not in valid_actions:
+        raise HTTPException(status_code=400, detail="action must be one of: keep_both, remove_new, remove_existing")
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT txn_id, duplicate_of FROM duplicate_flags WHERE id = %s AND status = 'pending'", (flag_id,))
+        row = cur.fetchone()
+        if not row: raise HTTPException(status_code=404, detail="Flag not found or already resolved")
+        new_txn_id, existing_txn_id = row
+        if body.action == "remove_new":
+            cur.execute("DELETE FROM transactions WHERE id = %s", (new_txn_id,))
+        elif body.action == "remove_existing":
+            cur.execute("DELETE FROM transactions WHERE id = %s", (existing_txn_id,))
+        cur.execute("UPDATE duplicate_flags SET status = %s WHERE id = %s", (body.action, flag_id))
+        conn.commit()
+    finally: db_put(conn)
+    return {"status": "ok", "action": body.action}
+
+@app.get("/api/duplicates/stats")
+def duplicate_stats():
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT status, COUNT(*) FROM duplicate_flags GROUP BY status")
+        rows = cur.fetchall()
+    finally: db_put(conn)
+    stats = {r[0]: r[1] for r in rows}
+    return {"pending": stats.get("pending", 0),
+            "keep_both": stats.get("keep_both", 0),
+            "remove_new": stats.get("remove_new", 0),
+            "remove_existing": stats.get("remove_existing", 0),
+            "total": sum(stats.values())}
+
 
 # ── AI Categorization ──
 OPENROUTER_KEY_FILE = Path("/run/secrets/openrouter_key")
