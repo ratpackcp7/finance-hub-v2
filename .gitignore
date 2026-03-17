@@ -1,0 +1,10 @@
+secrets/
+*.env.local
+__pycache__/
+*.pyc
+.pytest_cache/
+*.bak*
+*.backup
+worker/syncer.py
+app/main_patch.py
+app/patch_typeOpts.py

@@ -1,0 +1,85 @@
+services:
+
+  app:
+    build: ./app
+    container_name: fhub-app
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8888:8000"
+    networks:
+      - fhub_net
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./app:/app
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: fhub
+      DB_USER: fhub
+    secrets:
+      - db_password
+      - simplefin_access_url
+      - app_secret_key
+      - openrouter_key
+
+  worker:
+    build: ./worker
+    container_name: fhub-worker
+    restart: unless-stopped
+    networks:
+      - fhub_net
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./worker:/app
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: fhub
+      DB_USER: fhub
+      SYNC_HOUR: "6"        # daily sync at 6 AM CT
+      SYNC_MINUTE: "0"
+    secrets:
+      - db_password
+      - simplefin_access_url
+
+  db:
+    image: postgres:16-alpine
+    container_name: fhub-db
+    restart: unless-stopped
+    networks:
+      - fhub_net
+    volumes:
+      - fhub_db:/var/lib/postgresql/data
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    environment:
+      POSTGRES_DB: fhub
+      POSTGRES_USER: fhub
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fhub"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  fhub_net:
+    driver: bridge
+
+volumes:
+  fhub_db:
+
+secrets:
+  db_password:
+    file: ./secrets/db_password
+  simplefin_access_url:
+    file: ./secrets/simplefin_access_url
+  app_secret_key:
+    file: ./secrets/app_secret_key
+  openrouter_key:
+    file: ./secrets/openrouter_key

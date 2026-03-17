@@ -1,0 +1,1 @@
+      <td>${c.name!=='Uncategorized'?`<button class="btn btn-ghost btn-sm" style="margin-right:.3rem" onclick="openRenameCatModal(${c.id},'${c.name.replace(/'/g,"\\'")}')">Rename</button><button class="btn btn-danger btn-sm" onclick="deleteCat(${c.id},'${c.name}')">×</button>`:''}</td>

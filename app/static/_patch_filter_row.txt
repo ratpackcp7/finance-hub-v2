@@ -1,0 +1,3 @@
+    <div class="field" style="align-self:flex-end"><button class="btn btn-ghost" onclick="clearTxnFilters()">Clear</button></div>
+    <div class="field" style="align-self:flex-end"><button class="btn btn-primary" onclick="openAiCatModal()" id="ai-cat-btn">✨ AI Categorize</button></div>
+  </div>
