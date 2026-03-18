@@ -60,14 +60,16 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
                      category_id: Optional[str] = None, start_date: Optional[date] = None,
                      end_date: Optional[date] = None, search: Optional[str] = None,
                      pending: Optional[bool] = None, txn_type: Optional[str] = None,
-                     recurring: Optional[bool] = None):
+                     recurring: Optional[bool] = None,
+                     exclude_transfers: Optional[bool] = None):
     conn = db_conn()
     try:
         cur = conn.cursor()
         parsed_category_id, uncategorized = _parse_category_filter(category_id)
         filters, params = _txn_filters(
             account_id, parsed_category_id, start_date, end_date, search, pending,
-            txn_type=txn_type, uncategorized=uncategorized, recurring=recurring
+            txn_type=txn_type, uncategorized=uncategorized, recurring=recurring,
+            exclude_transfers=exclude_transfers or False
         )
         where = ("WHERE " + " AND ".join(filters)) if filters else ""
         if account_id:
