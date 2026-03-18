@@ -56,6 +56,7 @@ from routers.audit import router as audit_router
 from routers.holdings import router as holdings_router
 from routers.splits import router as splits_router
 from routers.tags import router as tags_router
+from routers.bills import router as bills_router
 
 app.include_router(accounts_router)
 app.include_router(transactions_router)
@@ -74,6 +75,7 @@ app.include_router(audit_router)
 app.include_router(holdings_router)
 app.include_router(splits_router)
 app.include_router(tags_router)
+app.include_router(bills_router)
 
 
 @app.get("/")

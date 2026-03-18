@@ -81,24 +81,43 @@ def fetch_simplefin(start_date: Optional[date] = None) -> dict:
     return data
 
 def apply_payee_rules(cur, txn_ids: list[str] = None) -> int:
-    cur.execute("SELECT id, match_pattern, payee_name, category_id FROM payee_rules WHERE deleted_at IS NULL ORDER BY priority DESC, id")
+    cur.execute(
+        "SELECT id, match_pattern, payee_name, category_id, amount_min, amount_max, set_transfer, tag_id "
+        "FROM payee_rules WHERE deleted_at IS NULL ORDER BY priority DESC, id")
     rules = cur.fetchall()
     if not rules: return 0
     if txn_ids:
         placeholders = ",".join(["%s"] * len(txn_ids))
-        cur.execute(f"SELECT id, description, payee FROM transactions WHERE id IN ({placeholders}) AND category_id IS NULL AND category_manual = FALSE", txn_ids)
+        cur.execute(f"SELECT id, description, payee, amount FROM transactions WHERE id IN ({placeholders}) AND category_id IS NULL AND category_manual = FALSE", txn_ids)
     else:
-        cur.execute("SELECT id, description, payee FROM transactions WHERE category_id IS NULL AND category_manual = FALSE")
+        cur.execute("SELECT id, description, payee, amount FROM transactions WHERE category_id IS NULL AND category_manual = FALSE")
     txns = cur.fetchall()
     if not txns: return 0
     categorized = 0
-    for txn_id, description, payee in txns:
+    for txn_id, description, payee, amount in txns:
         search_text = " ".join(filter(None, [(description or "").lower(), (payee or "").lower()]))
         if not search_text.strip(): continue
-        for rule_id, pattern, payee_name, category_id in rules:
-            if pattern and pattern.lower() in search_text:
-                cur.execute("UPDATE transactions SET category_id = %s, payee = COALESCE(%s, payee), category_source = 'rule', updated_at = NOW() WHERE id = %s AND category_manual = FALSE", (category_id, payee_name, txn_id))
-                categorized += 1; break
+        amt = abs(float(amount)) if amount else 0
+        for rule_id, pattern, payee_name, category_id, amt_min, amt_max, set_xfer, tag_id in rules:
+            if not (pattern and pattern.lower() in search_text):
+                continue
+            if amt_min is not None and amt < float(amt_min):
+                continue
+            if amt_max is not None and amt > float(amt_max):
+                continue
+            updates = ["category_source = 'rule'", "updated_at = NOW()"]
+            params = []
+            if category_id:
+                updates.append("category_id = %s"); params.append(category_id)
+            if payee_name:
+                updates.append("payee = COALESCE(%s, payee)"); params.append(payee_name)
+            if set_xfer is not None:
+                updates.append("is_transfer = %s"); params.append(set_xfer)
+            params.append(txn_id)
+            cur.execute(f"UPDATE transactions SET {', '.join(updates)} WHERE id = %s AND category_manual = FALSE", params)
+            if tag_id:
+                cur.execute("INSERT INTO transaction_tags (txn_id, tag_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (txn_id, tag_id))
+            categorized += 1; break
     return categorized
 
 def detect_near_dupes(cur, txn_id: str, account_id: str, amount: float, posted: date, batch_id: int) -> bool:

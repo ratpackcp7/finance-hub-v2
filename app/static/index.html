@@ -337,6 +337,7 @@
   <a data-page="rules" onclick="showPage('rules')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>Payee Rules</a>
   <a data-page="subscriptions" onclick="showPage('subscriptions')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>Subscriptions</a>
   <a data-page="imports" onclick="showPage('imports')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Imports</a>
+  <a data-page="bills" onclick="showPage('bills')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/><line x1="9" y1="3" x2="9" y2="9"/></svg>Bills & Debt</a>
   <a data-page="reconcile" onclick="showPage('reconcile')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Reconcile</a>
   <div class="sb-section">Settings</div>
   <a data-page="settings" onclick="showPage('settings')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Setup</a>
@@ -527,6 +528,35 @@
     </div>
   </div>
 </div>
+<div class="page" id="page-bills">
+  <h2 style="font-size:1.1rem;font-weight:600;color:#f8fafc;margin:0 0 1rem">Bills & Debt</h2>
+  <div class="grid-2" style="margin-bottom:1rem">
+    <div class="stat"><div class="stat-label">Upcoming Bills (45 days)</div><div class="stat-value" id="bills-total">—</div></div>
+    <div class="stat"><div class="stat-label">Bill Count</div><div class="stat-value" id="bills-count">—</div></div>
+  </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+      <div class="card-title" style="margin:0">Upcoming Bills</div>
+      <button class="btn btn-ghost btn-sm" onclick="loadUpcomingBills()">↻ Refresh</button>
+    </div>
+    <div id="bills-list"><p class="empty">Loading...</p></div>
+  </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem">
+      <div class="card-title" style="margin:0">Debt Payoff Calculator</div>
+      <div style="display:flex;gap:.5rem;align-items:center">
+        <label style="font-size:.75rem;color:#64748b;margin:0">Extra/mo:</label>
+        <input type="number" id="dp-extra" value="0" min="0" step="50" style="width:80px;font-size:.78rem;padding:.3rem .5rem" onchange="loadDebtPayoff()">
+        <select id="dp-strategy" style="font-size:.78rem;padding:.3rem .5rem" onchange="loadDebtPayoff()">
+          <option value="avalanche">Avalanche (highest rate)</option>
+          <option value="snowball">Snowball (lowest balance)</option>
+        </select>
+      </div>
+    </div>
+    <div id="debt-payoff-results"><p class="empty">Loading...</p></div>
+  </div>
+</div>
+
 <div class="page" id="page-insights">
   <!-- Budget vs Actual -->
   <div class="card" style="margin-bottom:1rem">
@@ -980,5 +1010,6 @@
 <script src="/static/js/account_detail.js"></script>
 <script src="/static/js/splits.js"></script>
 <script src="/static/js/tags.js"></script>
+<script src="/static/js/bills.js"></script>
 </body>
 </html>
