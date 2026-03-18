@@ -64,6 +64,15 @@ function showPage(name){
   if(name==='imports'){loadImportsPage();loadCsvAccounts();}
   if(name==='reconcile'){loadReconAccounts();loadReconHistory();}
   if(name==='flow')loadFlowPage();
+
+  // Push browser history (skip if this was triggered by popstate)
+  if(!window._isPopState){
+    var url='/#/'+name;
+    if(window.location.hash!=='#/'+name){
+      history.pushState({page:name},name,url);
+    }
+  }
+  window._isPopState=false;
 }
 
 // ── More menu ──
@@ -133,15 +142,33 @@ async function loadAccounts(){accounts=await api('/api/accounts');const opts='<o
 // ── Set default date range for spending page ──
 (function(){const now=new Date(),y=now.getFullYear(),m=now.getMonth();$('sp-from').value=new Date(y,m,1).toISOString().slice(0,10);$('sp-to').value=new Date(y,m+1,0).toISOString().slice(0,10);})();
 
-// ── Boot (no forward refs — loadCategories defined above) ──
+// ── Browser history (back/forward button support) ──
+window.addEventListener('popstate',function(e){
+  var page=(e.state&&e.state.page)?e.state.page:null;
+  if(!page){
+    // Try hash
+    var h=window.location.hash.replace('#/','');
+    if(h&&document.getElementById('page-'+h))page=h;
+  }
+  if(page){
+    window._isPopState=true;
+    showPage(page);
+  }
+});
+
+// ── Boot ──
 loadCategories();
-// Sync sidebar active state to current page on load
+// Load page from URL hash or default to dashboard
 (function(){
-  var active=document.querySelector('.page.active');
-  if(active){
-    var name=active.id.replace('page-','');
+  var hash=window.location.hash.replace('#/','');
+  if(hash&&document.getElementById('page-'+hash)){
+    showPage(hash);
+    history.replaceState({page:hash},hash,'/#/'+hash);
+  }else{
+    history.replaceState({page:'dashboard'},'dashboard','/#/dashboard');
+    // Sync sidebar
     document.querySelectorAll('.sidebar a[data-page]').forEach(function(a){
-      a.classList.toggle('active',a.dataset.page===name);
+      a.classList.toggle('active',a.dataset.page==='dashboard');
     });
   }
 })();
