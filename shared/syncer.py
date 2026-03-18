@@ -97,7 +97,7 @@ def apply_payee_rules(cur, txn_ids: list[str] = None) -> int:
         if not search_text.strip(): continue
         for rule_id, pattern, payee_name, category_id in rules:
             if pattern and pattern.lower() in search_text:
-                cur.execute("UPDATE transactions SET category_id = %s, payee = COALESCE(%s, payee), updated_at = NOW() WHERE id = %s AND category_manual = FALSE", (category_id, payee_name, txn_id))
+                cur.execute("UPDATE transactions SET category_id = %s, payee = COALESCE(%s, payee), category_source = 'rule', updated_at = NOW() WHERE id = %s AND category_manual = FALSE", (category_id, payee_name, txn_id))
                 categorized += 1; break
     return categorized
 

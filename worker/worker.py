@@ -1,6 +1,6 @@
 """
 Finance Hub v2 — Background Worker
-Runs a daily SimpleFIN sync via APScheduler. No Redis, no webhooks.
+Runs a daily SimpleFIN sync + retention purge via APScheduler.
 """
 
 import logging
@@ -21,6 +21,8 @@ logging.basicConfig(
     format="%(asctime)s [worker] %(levelname)s %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+RETENTION_DAYS = int(os.environ.get("RETENTION_DAYS", "90"))
 
 
 # ─────────────────────────────────────────────
@@ -54,7 +56,7 @@ def get_pool():
 
 
 # ─────────────────────────────────────────────
-# Scheduled job
+# Scheduled jobs
 # ─────────────────────────────────────────────
 
 def take_balance_snapshot(conn):
@@ -75,6 +77,22 @@ def take_balance_snapshot(conn):
     logger.info("Balance snapshot: %d accounts for %s", count, today)
     return count
 
+
+def purge_old_payloads(conn):
+    """Null out raw_payload on old import batches + per-txn raw JSON.
+    Keeps batch metadata (counts, status, timestamps) forever."""
+    cur = conn.cursor()
+    cur.execute("SELECT purge_old_payloads(%s)", (RETENTION_DAYS,))
+    batch_purged = cur.fetchone()[0]
+    cur.execute("SELECT purge_old_txn_raw(%s)", (RETENTION_DAYS,))
+    txn_purged = cur.fetchone()[0]
+    conn.commit()
+    if batch_purged or txn_purged:
+        logger.info("Retention purge: %d batch payloads, %d txn raw records nulled (>%d days)",
+                     batch_purged, txn_purged, RETENTION_DAYS)
+    return batch_purged, txn_purged
+
+
 def scheduled_sync():
     logger.info("Scheduled sync starting")
     pool = get_pool()
@@ -86,6 +104,10 @@ def scheduled_sync():
             take_balance_snapshot(conn)
         except Exception as e:
             logger.error("Balance snapshot failed: %s", e)
+        try:
+            purge_old_payloads(conn)
+        except Exception as e:
+            logger.error("Retention purge failed: %s", e)
     except Exception as e:
         logger.error("Scheduled sync failed: %s", e)
     finally:
@@ -123,10 +145,11 @@ def main():
         scheduled_sync,
         CronTrigger(hour=sync_hour, minute=sync_minute),
         id="daily_sync",
-        name="Daily SimpleFIN sync",
+        name="Daily SimpleFIN sync + retention purge",
     )
 
-    logger.info("Scheduler started — daily sync at %02d:%02d CT", sync_hour, sync_minute)
+    logger.info("Scheduler started — daily sync at %02d:%02d CT, retention=%d days",
+                sync_hour, sync_minute, RETENTION_DAYS)
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):

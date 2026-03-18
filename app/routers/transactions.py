@@ -54,7 +54,7 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
                         FROM transactions WHERE account_id = %s)
                     SELECT t.id, t.account_id, a.name, t.posted, t.amount, t.description, t.payee,
                            t.category_id, c.name, t.category_manual, t.pending, t.notes, t.is_transfer,
-                           bal.running_balance
+                           t.category_source, bal.running_balance
                     FROM transactions t JOIN accounts a ON t.account_id = a.id
                     LEFT JOIN categories c ON t.category_id = c.id
                     LEFT JOIN bal ON t.id = bal.id {where}
@@ -64,7 +64,7 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
             cur.execute(
                 f"""SELECT t.id, t.account_id, a.name, t.posted, t.amount, t.description, t.payee,
                            t.category_id, c.name, t.category_manual, t.pending, t.notes, t.is_transfer,
-                           NULL as running_balance
+                           t.category_source, NULL as running_balance
                     FROM transactions t JOIN accounts a ON t.account_id = a.id
                     LEFT JOIN categories c ON t.category_id = c.id {where}
                     ORDER BY t.posted DESC, t.id LIMIT %s OFFSET %s""",
@@ -82,7 +82,8 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
              "amount": float(r[4]) if r[4] is not None else None,
              "description": r[5], "payee": r[6], "category_id": r[7], "category": r[8],
              "category_manual": r[9], "pending": r[10], "notes": r[11], "is_transfer": r[12],
-             "running_balance": float(r[13]) if r[13] is not None else None}
+             "category_source": r[13],
+             "running_balance": float(r[14]) if r[14] is not None else None}
             for r in rows]}
 
 
@@ -97,7 +98,8 @@ def export_transactions(account_id: Optional[str] = None, category_id: Optional[
         where = ("WHERE " + " AND ".join(filters)) if filters else ""
         cur.execute(
             f"""SELECT t.posted, COALESCE(t.payee, t.description, ''), t.description, a.name,
-                       COALESCE(c.name, 'Uncategorized'), t.amount, t.is_transfer, t.notes
+                       COALESCE(c.name, 'Uncategorized'), t.amount, t.is_transfer, t.notes,
+                       t.category_source
                 FROM transactions t JOIN accounts a ON t.account_id = a.id
                 LEFT JOIN categories c ON t.category_id = c.id {where}
                 ORDER BY t.posted DESC, t.id""", params)
@@ -106,12 +108,13 @@ def export_transactions(account_id: Optional[str] = None, category_id: Optional[
         db_put(conn)
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["Date", "Payee", "Description", "Account", "Category", "Amount", "Transfer", "Notes"])
+    w.writerow(["Date", "Payee", "Description", "Account", "Category", "Amount", "Transfer", "Notes", "Category Source"])
     for r in rows:
         w.writerow([r[0].isoformat() if r[0] else "", _csv_safe(r[1]), _csv_safe(r[2]),
                     _csv_safe(r[3]), _csv_safe(r[4]),
                     f"{float(r[5]):.2f}" if r[5] is not None else "",
-                    "Yes" if r[6] else "", _csv_safe(r[7] or "")])
+                    "Yes" if r[6] else "", _csv_safe(r[7] or ""),
+                    _csv_safe(r[8] or "")])
     buf.seek(0)
     return StreamingResponse(buf, media_type="text/csv",
                              headers={"Content-Disposition": f'attachment; filename="finance_hub_{date.today().isoformat()}.csv"'})
@@ -136,8 +139,9 @@ def patch_transaction(txn_id: str, body: TxnPatch):
         updates, params = [], []
         if body.category_id is not None:
             require_valid_category(cur, body.category_id)
-            updates += ["category_id = %s", "category_manual = TRUE"]; params.append(body.category_id)
-            _audit(cur, "transaction", txn_id, "update", field_name="category_id",
+            updates += ["category_id = %s", "category_manual = TRUE", "category_source = 'user'"]
+            params.append(body.category_id)
+            _audit(cur, "transaction", txn_id, "update", source="user", field_name="category_id",
                    old_value=old_cat, new_value=body.category_id)
         if body.payee is not None:
             if len(body.payee) > MAX_TEXT_LEN:

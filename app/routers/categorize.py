@@ -1,4 +1,8 @@
-"""AI Categorization router — suggest + apply."""
+"""AI Categorization router — suggest + apply.
+
+Privacy: Amounts sent to OpenRouter are bucketed (not exact values).
+Provenance: AI-applied categories tagged with category_source='ai'.
+"""
 import json
 import logging
 import os
@@ -45,10 +49,32 @@ def _call_openrouter(prompt: str) -> str:
         raise RuntimeError(f"OpenRouter error {e.code}: {e.read().decode()}")
 
 
+def _bucket_amount(amount: float) -> str:
+    """Redact exact dollar amounts — send size bucket to AI instead."""
+    amt = abs(amount)
+    if amt < 10:
+        return "under $10"
+    elif amt < 25:
+        return "$10-25"
+    elif amt < 50:
+        return "$25-50"
+    elif amt < 100:
+        return "$50-100"
+    elif amt < 250:
+        return "$100-250"
+    elif amt < 500:
+        return "$250-500"
+    elif amt < 1000:
+        return "$500-1K"
+    else:
+        return "over $1K"
+
+
 def _build_ai_prompt(txns, categories):
     cl = "\n".join("  - " + c["name"] for c in sorted(categories, key=lambda x: x["name"]))
     ls = [f"  {i + 1}. [{t.get('posted', '')}] {t.get('payee') or t.get('description') or 'Unknown'} | "
-          f"${float(t.get('amount', 0)):.2f}" for i, t in enumerate(txns)]
+          f"{_bucket_amount(t.get('amount', 0))}"
+          f"{' (credit)' if t.get('amount', 0) > 0 else ''}" for i, t in enumerate(txns)]
     return (f"You are a personal finance categorizer.\n\nAVAILABLE CATEGORIES:\n{cl}\n\nTRANSACTIONS:\n"
             + "\n".join(ls)
             + '\n\nRules:\n- Match each to exactly one category.\n- If nothing fits, use "Uncategorized".\n'
@@ -124,7 +150,8 @@ def categorize_suggest(limit: int = 100):
             raise HTTPException(status_code=502, detail="AI error: " + str(e))
     return {"suggestions": rule_results + ai_results,
             "categories": [{"id": c["id"], "name": c["name"], "color": c["color"]} for c in categories],
-            "stats": {"total": len(txns), "rule_matched": len(rule_results), "ai_suggested": len(ai_results)}}
+            "stats": {"total": len(txns), "rule_matched": len(rule_results), "ai_suggested": len(ai_results)},
+            "privacy_note": "Transaction amounts are bucketed (not exact) before sending to AI service."}
 
 
 class CategorizeApplyItem(BaseModel):
@@ -132,6 +159,7 @@ class CategorizeApplyItem(BaseModel):
     category_id: int
     make_rule: bool = False
     payee: Optional[str] = None
+    source: str = "ai"
 
 
 class CategorizeApplyRequest(BaseModel):
@@ -145,13 +173,17 @@ def categorize_apply(body: CategorizeApplyRequest):
     try:
         cur = conn.cursor()
         for item in body.items:
-            cur.execute("SELECT category_id FROM transactions WHERE id = %s", (item.txn_id,))
+            cur.execute("SELECT category_id, category_source FROM transactions WHERE id = %s", (item.txn_id,))
             old = cur.fetchone()
+            # AI-applied: set category_manual=TRUE (protect from sync overwrite)
+            # but also tag category_source so provenance is clear
+            source_tag = item.source if item.source in ("ai", "rule", "user") else "ai"
             cur.execute(
-                "UPDATE transactions SET category_id = %s, category_manual = TRUE, updated_at = NOW() "
-                "WHERE id = %s", (item.category_id, item.txn_id))
+                "UPDATE transactions SET category_id = %s, category_manual = TRUE, "
+                "category_source = %s, updated_at = NOW() "
+                "WHERE id = %s", (item.category_id, source_tag, item.txn_id))
             applied += 1
-            _audit(cur, "transaction", item.txn_id, "ai_categorize", source="ai",
+            _audit(cur, "transaction", item.txn_id, "categorize", source=source_tag,
                    field_name="category_id", old_value=old[0] if old else None, new_value=item.category_id)
             if item.make_rule and item.payee:
                 pattern = item.payee.lower().strip()

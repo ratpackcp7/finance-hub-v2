@@ -1,6 +1,7 @@
 """
-Finance Hub v2 — FastAPI application (v4.1.0)
-P2: Migration system + router split
+Finance Hub v2 — FastAPI application (v4.2.0)
+P2: AI categorization privacy/provenance
+P3: Raw payload retention policy
 """
 import logging
 from contextlib import asynccontextmanager
@@ -32,7 +33,7 @@ async def lifespan(app: FastAPI):
     close_pool()
 
 
-app = FastAPI(title="Finance Hub", version="4.1.0", lifespan=lifespan)
+app = FastAPI(title="Finance Hub", version="4.2.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # ── Register routers ──
