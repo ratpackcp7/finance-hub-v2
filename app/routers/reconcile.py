@@ -2,11 +2,11 @@
 
 Flow:
   1. Create session: pick account + enter statement date + statement balance
-  2. Show uncleared transactions for that account up to statement date
-  3. User marks transactions as cleared (checkbox)
-  4. App calculates: sum(cleared txns) vs statement_balance → difference
+  2. Show unreconciled transactions for that account up to statement date
+  3. User marks transactions as cleared (session-scoped, stored in reconciliation_session_items)
+  4. App calculates: sum(cleared txns) vs statement_balance \u2192 difference
   5. When difference = 0, user can complete the session
-  6. Completing marks all cleared txns as reconciled
+  6. Completing marks session-cleared txns as reconciled, cleans up session items
 """
 from datetime import date
 from typing import Optional
@@ -19,7 +19,7 @@ from db import _audit, db_conn, db_put
 router = APIRouter(prefix="/api/reconcile", tags=["reconcile"])
 
 
-# ── Sessions ──
+# \u2500\u2500 Sessions \u2500\u2500
 
 class ReconCreateRequest(BaseModel):
     account_id: str
@@ -33,12 +33,10 @@ def create_session(body: ReconCreateRequest):
     conn = db_conn()
     try:
         cur = conn.cursor()
-        # Verify account
         cur.execute("SELECT id, name FROM accounts WHERE id = %s", (body.account_id,))
         acct = cur.fetchone()
         if not acct:
             raise HTTPException(status_code=400, detail="Account not found")
-        # Check no open session for this account
         cur.execute(
             "SELECT id FROM reconciliation_sessions WHERE account_id = %s AND status = 'open'",
             (body.account_id,))
@@ -104,16 +102,19 @@ def get_session(session_id: int):
         if not r:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        # Get uncleared transactions for this account up to statement date
         cur.execute(
             """SELECT t.id, t.posted, t.amount, t.description, t.payee,
-                      t.category_id, c.name as category, t.cleared, t.is_transfer, t.pending
+                      t.category_id, c.name as category,
+                      COALESCE(rsi.cleared, FALSE) as cleared,
+                      t.is_transfer, t.pending
                FROM transactions t
                LEFT JOIN categories c ON t.category_id = c.id
+               LEFT JOIN reconciliation_session_items rsi
+                 ON rsi.session_id = %s AND rsi.txn_id = t.id
                WHERE t.account_id = %s AND t.posted <= %s
                  AND t.reconciled_at IS NULL AND t.pending = FALSE
                ORDER BY t.posted ASC, t.id""",
-            (r[1], r[3]))
+            (session_id, r[1], r[3]))
         txns = [{"id": t[0], "posted": t[1].isoformat() if t[1] else None,
                  "amount": float(t[2]) if t[2] is not None else 0,
                  "description": t[3], "payee": t[4],
@@ -121,12 +122,10 @@ def get_session(session_id: int):
                  "cleared": t[7], "is_transfer": t[8], "pending": t[9]}
                 for t in cur.fetchall()]
 
-        # Recalculate cleared totals
         cleared_txns = [t for t in txns if t["cleared"]]
         cleared_balance = sum(t["amount"] for t in cleared_txns)
         difference = float(r[4]) - cleared_balance
 
-        # Update session with current totals
         cur.execute(
             "UPDATE reconciliation_sessions SET cleared_count = %s, cleared_balance = %s, difference = %s "
             "WHERE id = %s",
@@ -150,8 +149,6 @@ def get_session(session_id: int):
     }
 
 
-# ── Toggle cleared ──
-
 class ClearToggleRequest(BaseModel):
     txn_ids: list[str]
     cleared: bool
@@ -162,7 +159,6 @@ def toggle_cleared(session_id: int, body: ClearToggleRequest):
     conn = db_conn()
     try:
         cur = conn.cursor()
-        # Verify session is open
         cur.execute("SELECT status, account_id FROM reconciliation_sessions WHERE id = %s", (session_id,))
         row = cur.fetchone()
         if not row:
@@ -172,21 +168,30 @@ def toggle_cleared(session_id: int, body: ClearToggleRequest):
 
         updated = 0
         for txn_id in body.txn_ids:
-            cur.execute(
-                "UPDATE transactions SET cleared = %s, updated_at = NOW() "
-                "WHERE id = %s AND account_id = %s AND reconciled_at IS NULL",
-                (body.cleared, txn_id, row[1]))
-            if cur.rowcount:
-                updated += 1
-                _audit(cur, "transaction", txn_id, "reconcile_clear", source="user",
-                       field_name="cleared", new_value=body.cleared)
+            if body.cleared:
+                cur.execute(
+                    """INSERT INTO reconciliation_session_items (session_id, txn_id, cleared)
+                       SELECT %s, t.id, TRUE
+                       FROM transactions t
+                       WHERE t.id = %s AND t.account_id = %s AND t.reconciled_at IS NULL
+                       ON CONFLICT (session_id, txn_id)
+                       DO UPDATE SET cleared = TRUE, updated_at = NOW()""",
+                    (session_id, txn_id, row[1]))
+                if cur.rowcount:
+                    updated += 1
+            else:
+                cur.execute(
+                    "DELETE FROM reconciliation_session_items WHERE session_id = %s AND txn_id = %s",
+                    (session_id, txn_id))
+                if cur.rowcount:
+                    updated += 1
+            _audit(cur, "transaction", txn_id, "reconcile_clear", source="user",
+                   field_name="cleared", new_value=body.cleared)
         conn.commit()
     finally:
         db_put(conn)
     return {"updated": updated}
 
-
-# ── Complete session ──
 
 @router.post("/sessions/{session_id}/complete")
 def complete_session(session_id: int):
@@ -204,11 +209,16 @@ def complete_session(session_id: int):
 
         account_id, stmt_date, stmt_balance = row[1], row[2], float(row[3])
 
-        # Calculate cleared balance
         cur.execute(
-            "SELECT COALESCE(SUM(amount), 0), COUNT(*) FROM transactions "
-            "WHERE account_id = %s AND posted <= %s AND cleared = TRUE AND reconciled_at IS NULL",
-            (account_id, stmt_date))
+            """SELECT COALESCE(SUM(t.amount), 0), COUNT(*)
+               FROM transactions t
+               JOIN reconciliation_session_items rsi ON rsi.txn_id = t.id
+               WHERE rsi.session_id = %s
+                 AND rsi.cleared = TRUE
+                 AND t.account_id = %s
+                 AND t.posted <= %s
+                 AND t.reconciled_at IS NULL""",
+            (session_id, account_id, stmt_date))
         cleared_sum, cleared_count = cur.fetchone()
         cleared_sum = float(cleared_sum)
         difference = stmt_balance - cleared_sum
@@ -219,14 +229,21 @@ def complete_session(session_id: int):
                 detail=f"Cannot complete: difference is ${difference:.2f}. "
                        f"Statement balance: ${stmt_balance:.2f}, cleared: ${cleared_sum:.2f}")
 
-        # Mark all cleared txns as reconciled
         cur.execute(
-            "UPDATE transactions SET reconciled_at = NOW(), updated_at = NOW() "
-            "WHERE account_id = %s AND posted <= %s AND cleared = TRUE AND reconciled_at IS NULL",
-            (account_id, stmt_date))
+            """UPDATE transactions t
+               SET reconciled_at = NOW(), updated_at = NOW()
+               FROM reconciliation_session_items rsi
+               WHERE rsi.session_id = %s
+                 AND rsi.cleared = TRUE
+                 AND t.id = rsi.txn_id
+                 AND t.account_id = %s
+                 AND t.posted <= %s
+                 AND t.reconciled_at IS NULL""",
+            (session_id, account_id, stmt_date))
         reconciled = cur.rowcount
 
-        # Close session
+        cur.execute("DELETE FROM reconciliation_session_items WHERE session_id = %s", (session_id,))
+
         cur.execute(
             "UPDATE reconciliation_sessions SET status = 'completed', completed_at = NOW(), "
             "cleared_count = %s, cleared_balance = %s, difference = %s "
@@ -237,8 +254,6 @@ def complete_session(session_id: int):
         db_put(conn)
     return {"status": "completed", "reconciled": reconciled}
 
-
-# ── Abandon session ──
 
 @router.post("/sessions/{session_id}/abandon")
 def abandon_session(session_id: int):
@@ -253,11 +268,7 @@ def abandon_session(session_id: int):
         if row[0] != "open":
             raise HTTPException(status_code=400, detail="Session is not open")
 
-        # Uncheck all cleared txns for this session's scope
-        cur.execute(
-            "UPDATE transactions SET cleared = FALSE, updated_at = NOW() "
-            "WHERE account_id = %s AND posted <= %s AND cleared = TRUE AND reconciled_at IS NULL",
-            (row[1], row[2]))
+        cur.execute("DELETE FROM reconciliation_session_items WHERE session_id = %s", (session_id,))
 
         cur.execute(
             "UPDATE reconciliation_sessions SET status = 'abandoned', completed_at = NOW() WHERE id = %s",
