@@ -171,6 +171,26 @@ def scheduled_sync():
             refresh_holding_prices(conn)
         except Exception as e:
             logger.error("Holding price refresh failed: %s", e)
+        # Refresh benchmark prices (SPY, VTI, QQQ)
+        try:
+            cur = conn.cursor()
+            for bench_ticker in ["SPY", "VTI", "QQQ"]:
+                try:
+                    import yfinance as yf
+                    tk = yf.Ticker(bench_ticker)
+                    hist = tk.history(period="1mo", interval="1d")
+                    for idx, row in hist.iterrows():
+                        d = idx.date() if hasattr(idx, 'date') else idx
+                        cur.execute(
+                            "INSERT INTO benchmark_prices (ticker, price_date, close_price) "
+                            "VALUES (%s, %s, %s) ON CONFLICT (ticker, price_date) DO UPDATE SET close_price = EXCLUDED.close_price",
+                            (bench_ticker, d, float(row["Close"])))
+                except Exception as e:
+                    logger.warning("Benchmark %s refresh failed: %s", bench_ticker, e)
+            conn.commit()
+            logger.info("Benchmark prices refreshed")
+        except Exception as e:
+            logger.error("Benchmark refresh failed: %s", e)
         try:
             take_goal_snapshot(conn)
         except Exception as e:

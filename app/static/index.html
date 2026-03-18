@@ -331,6 +331,7 @@
   <a data-page="history" onclick="showPage('history')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>History</a>
   <a data-page="insights" onclick="showPage('insights')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Insights</a>
   <a data-page="flow" onclick="showPage('flow')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Money Flow</a>
+  <a data-page="forecast" onclick="showPage('forecast')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Forecast</a>
   <a data-page="compare" onclick="showPage('compare')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Compare</a>
   <a data-page="spending" onclick="showPage('spending')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Spending</a>
   <a data-page="transactions" onclick="showPage('transactions')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>Transactions</a>
@@ -377,6 +378,54 @@
   </div>
   <div class="card" id="dash-sankey-card" style="display:none"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem"><div class="card-title" style="margin:0" id="sankey-title">Money Flow — This Month</div><div class="date-range-row" style="margin:0;gap:.35rem"><button class="quick-btn active" onclick="setSankeyRange('this-month',this)">This Month</button><button class="quick-btn" onclick="setSankeyRange('last-month',this)">Last Month</button><button class="quick-btn" onclick="setSankeyRange('3-months',this)">3 Months</button><button class="quick-btn" onclick="setSankeyRange('ytd',this)">YTD</button></div></div><div id="sankey-wrap" style="width:100%;overflow-x:auto"></div></div>
   <div class="card"><div class="card-title">Recent Syncs</div><div id="sync-log-list"><p class="empty">Loading...</p></div></div>
+</div>
+<div class="page" id="page-forecast">
+  <h2 style="font-size:1.1rem;font-weight:600;color:#f8fafc;margin-bottom:1rem">Forecast</h2>
+
+  <div class="grid-4" style="margin-bottom:1rem">
+    <div class="stat"><div class="stat-label">Avg Income/Mo</div><div class="stat-value" id="fc-avg-income">—</div></div>
+    <div class="stat"><div class="stat-label">Avg Spending/Mo</div><div class="stat-value" id="fc-avg-spending">—</div></div>
+    <div class="stat"><div class="stat-label">Avg Net/Mo</div><div class="stat-value" id="fc-avg-net">—</div></div>
+    <div class="stat"><div class="stat-label">Savings Rate</div><div class="stat-value" id="fc-savings-rate">—</div></div>
+  </div>
+
+  <div class="grid-2" style="margin-bottom:1rem">
+    <div class="stat"><div class="stat-label" id="fc-nw-label">Projected NW</div><div class="stat-value" id="fc-nw-projection">—</div></div>
+    <div class="stat"><div class="stat-label">Month Pace</div><div class="stat-value" id="fc-pace" style="font-size:.9rem">—</div></div>
+  </div>
+
+  <div class="card" style="margin-bottom:1rem" id="fc-chart-wrap">
+    <div class="card-title">Cash Flow: Actual + Projected</div>
+    <p style="font-size:.72rem;color:#64748b;margin-bottom:.5rem">Solid = actual, dashed = projected based on 3-month average</p>
+    <div style="height:280px"><canvas id="chart-forecast"></canvas></div>
+  </div>
+
+  <div class="card" style="margin-bottom:1rem">
+    <div class="card-title">Category Forecast</div>
+    <div id="fc-cat-table"><p class="empty">Loading...</p></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">What-If Scenario</div>
+    <div style="display:flex;gap:.8rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:.75rem">
+      <div class="field" style="margin:0;flex:1;min-width:140px"><label>Reduce spending by ($/mo)</label><input type="number" id="wi-change" value="-200" step="50"></div>
+      <div class="field" style="margin:0;flex:1;min-width:140px"><label>Extra savings ($/mo)</label><input type="number" id="wi-extra" value="0" step="50"></div>
+      <div class="field" style="margin:0;width:100px"><label>Months</label><select id="wi-months"><option value="6">6</option><option value="12" selected>12</option><option value="24">24</option></select></div>
+      <button class="btn btn-primary" onclick="runWhatIf()" style="height:36px">🔮 Calculate</button>
+    </div>
+    <div id="wi-results" style="display:none">
+      <div class="grid-3" style="margin-bottom:.75rem">
+        <div class="stat"><div class="stat-label">Baseline Net/Mo</div><div class="stat-value" id="wi-baseline-net" style="font-size:1rem">—</div></div>
+        <div class="stat"><div class="stat-label">Adjusted Net/Mo</div><div class="stat-value" id="wi-adjusted-net" style="font-size:1rem">—</div></div>
+        <div class="stat"><div class="stat-label">Improvement</div><div class="stat-value" id="wi-improvement" style="font-size:1rem">—</div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:.82rem;margin-bottom:.5rem">
+        <span>Total impact: <strong id="wi-total"></strong></span>
+        <span>NW baseline: <span id="wi-nw-base"></span> → adjusted: <strong id="wi-nw-adj"></strong></span>
+      </div>
+      <div style="height:200px"><canvas id="chart-whatif"></canvas></div>
+    </div>
+  </div>
 </div>
 <div class="page" id="page-compare">
   <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem">
@@ -1010,22 +1059,22 @@
     </div>
   </div>
 </div>
-<script src="/static/js/core.js?v=1773875706"></script>
-<script src="/static/js/sync.js?v=1773875706"></script>
-<script src="/static/js/dashboard.js?v=1773875706"></script>
-<script src="/static/js/history.js?v=1773875706"></script>
-<script src="/static/js/insights.js?v=1773875706"></script>
-<script src="/static/js/sankey.js?v=1773875706"></script>
-<script src="/static/js/spending.js?v=1773875706"></script>
-<script src="/static/js/transactions.js?v=1773875706"></script>
-<script src="/static/js/transfers.js?v=1773875706"></script>
-<script src="/static/js/ai_categorize.js?v=1773875706"></script>
-<script src="/static/js/rules.js?v=1773875706"></script>
-<script src="/static/js/settings.js?v=1773875706"></script>
-<script src="/static/js/subscriptions.js?v=1773875706"></script>
-<script src="/static/js/imports.js?v=1773875706"></script>
-<script src="/static/js/reconcile.js?v=1773875706"></script>
-<script src="/static/js/feedback.js?v=1773875706"></script>
+<script src="/static/js/core.js?v=1773876376"></script>
+<script src="/static/js/sync.js?v=1773876376"></script>
+<script src="/static/js/dashboard.js?v=1773876376"></script>
+<script src="/static/js/history.js?v=1773876376"></script>
+<script src="/static/js/insights.js?v=1773876376"></script>
+<script src="/static/js/sankey.js?v=1773876376"></script>
+<script src="/static/js/spending.js?v=1773876376"></script>
+<script src="/static/js/transactions.js?v=1773876376"></script>
+<script src="/static/js/transfers.js?v=1773876376"></script>
+<script src="/static/js/ai_categorize.js?v=1773876376"></script>
+<script src="/static/js/rules.js?v=1773876376"></script>
+<script src="/static/js/settings.js?v=1773876376"></script>
+<script src="/static/js/subscriptions.js?v=1773876376"></script>
+<script src="/static/js/imports.js?v=1773876376"></script>
+<script src="/static/js/reconcile.js?v=1773876376"></script>
+<script src="/static/js/feedback.js?v=1773876376"></script>
 
 <!-- Feedback FAB -->
 <!-- Account Detail Modal -->
@@ -1227,11 +1276,11 @@
   </div>
 </div>
 
-<script src="/static/js/manual_entry.js?v=1773875706"></script>
-<script src="/static/js/account_detail.js?v=1773875706"></script>
-<script src="/static/js/splits.js?v=1773875706"></script>
-<script src="/static/js/tags.js?v=1773875706"></script>
-<script src="/static/js/bills.js?v=1773875706"></script>
+<script src="/static/js/manual_entry.js?v=1773876376"></script>
+<script src="/static/js/account_detail.js?v=1773876376"></script>
+<script src="/static/js/splits.js?v=1773876376"></script>
+<script src="/static/js/tags.js?v=1773876376"></script>
+<script src="/static/js/bills.js?v=1773876376"></script>
 <script src="/static/js/goals.js"></script>
 <script src="/static/js/review.js"></script>
 <script src="/static/js/bulk.js"></script>
@@ -1249,5 +1298,6 @@
     </div>
   </div>
 </div>
+<script src="/static/js/forecast.js"></script>
 </body>
 </html>

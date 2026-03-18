@@ -63,6 +63,9 @@ from routers.digest import router as digest_router
 from routers.bulk import router as bulk_router
 from routers.compare import router as compare_router
 from routers.merchants import router as merchants_router
+from routers.forecast import router as forecast_router
+from routers.benchmark import router as benchmark_router
+from routers.inv_txns import router as inv_txns_router
 
 app.include_router(accounts_router)
 app.include_router(transactions_router)
@@ -88,6 +91,9 @@ app.include_router(digest_router)
 app.include_router(bulk_router)
 app.include_router(compare_router)
 app.include_router(merchants_router)
+app.include_router(forecast_router)
+app.include_router(benchmark_router)
+app.include_router(inv_txns_router)
 
 
 @app.get("/")
