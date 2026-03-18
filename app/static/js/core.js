@@ -57,7 +57,7 @@ function showPage(name){
   // Page loaders
   if(name==='dashboard'){loadDashboard();loadSankey();if(typeof loadGoalsDashboard==='function')loadGoalsDashboard();if(typeof loadReviewCounts==='function')loadReviewCounts();}
   if(name==='spending')loadSpending();
-  if(name==='transactions'){loadCategories();loadAccounts();loadTxns();}
+  if(name==='transactions'){loadCategories();loadAccounts();loadTxns();loadBulkDropdowns();}
   if(name==='rules'){loadRules();loadCategories();}
   if(name==='settings'){loadAccountsSettings();loadCategoriesSettings();loadBudgetSettings();loadHoldingsSettings();}
   if(name==='subscriptions')loadSubscriptions();
@@ -168,6 +168,18 @@ async function loadTagFilter(){
     var sel=$('t-tag');
     if(sel)sel.innerHTML='<option value="">All tags</option>'+tags.map(function(t){return'<option value="'+t.id+'">'+t.name+(t.count?' ('+t.count+')':'')+' </option>';}).join('');
   }catch(e){console.error('Tag filter:',e);}
+}
+
+// ── Bulk edit dropdowns ──
+function loadBulkDropdowns(){
+  var catSel=$('bulk-category');
+  if(catSel&&categories.length){
+    catSel.innerHTML='<option value="">Clear category</option>'+categories.map(function(c){return'<option value="'+c.id+'">'+c.name+'</option>';}).join('');
+  }
+  var tagSel=$('bulk-tag');
+  if(tagSel&&typeof _allTags!=='undefined'&&_allTags.length){
+    tagSel.innerHTML='<option value="">Select tag</option>'+_allTags.map(function(t){return'<option value="'+t.id+'">'+t.name+'</option>';}).join('');
+  }
 }
 
 // ── Boot ──

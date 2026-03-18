@@ -438,6 +438,7 @@
     <div class="field"><label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;white-space:nowrap;margin-top:1.1rem"><input type="checkbox" id="t-recurring" onchange="window._drillType=null;txnOffset=0;loadTxns()"> Recurring only</label></div>
     <div class="filter-actions desktop-only">
       <button class="btn btn-success btn-sm" onclick="openManualTxnModal()">+ Add Transaction</button>
+      <button class="btn btn-ghost btn-sm" id="bulk-toggle-btn" onclick="toggleBulkMode()">☑ Select</button>
       <button class="btn btn-ghost" onclick="clearTxnFilters()">Clear</button>
       <button class="btn btn-ghost" onclick="exportCsv()" title="Download CSV">⬇ CSV</button>
       <button class="btn btn-warning btn-sm" onclick="openTransferModal()">🔄 Transfers</button>
@@ -448,6 +449,20 @@
       <button class="btn btn-ghost btn-sm" onclick="exportCsv()">⬇ CSV</button>
       <button class="btn btn-warning btn-sm" onclick="openTransferModal()">🔄 Transfers</button>
     </div>
+  </div>
+  <div id="bulk-action-bar" style="display:none;padding:.6rem .8rem;background:#161b27;border:1px solid #1e2530;border-radius:8px;margin-bottom:.75rem;gap:.5rem;align-items:center;flex-wrap:wrap">
+    <span id="bulk-count" style="font-size:.82rem;color:#fbbf24;font-weight:600;margin-right:.5rem">0 selected</span>
+    <button class="btn btn-ghost btn-sm" onclick="bulkSelectAll()">All</button>
+    <button class="btn btn-ghost btn-sm" onclick="bulkDeselectAll()">None</button>
+    <span style="color:#1e2530;margin:0 .2rem">|</span>
+    <select id="bulk-category" style="font-size:.78rem;padding:.3rem .5rem;min-width:120px;background:#0f1117;color:#e2e8f0;border:1px solid #1e2530;border-radius:4px"><option value="">Clear category</option></select>
+    <button class="btn btn-primary btn-sm bulk-action-btn" onclick="bulkCategorize()" disabled>Apply Category</button>
+    <span style="color:#1e2530;margin:0 .2rem">|</span>
+    <select id="bulk-tag" style="font-size:.78rem;padding:.3rem .5rem;min-width:100px;background:#0f1117;color:#e2e8f0;border:1px solid #1e2530;border-radius:4px"><option value="">Select tag</option></select>
+    <button class="btn btn-ghost btn-sm bulk-action-btn" onclick="bulkTag()" disabled>🏷 Tag</button>
+    <span style="color:#1e2530;margin:0 .2rem">|</span>
+    <button class="btn btn-success btn-sm bulk-action-btn" onclick="bulkMarkReviewed()" disabled>✓ Reviewed</button>
+    <button class="btn btn-warning btn-sm bulk-action-btn" onclick="bulkMarkTransfer(true)" disabled>⇄ Transfer</button>
   </div>
   <div class="card txn-card-wrap" style="padding:0;overflow:hidden"><table class="txn-table"><thead><tr><th>Date</th><th>Description / Payee</th><th>Account</th><th>Category</th><th style="text-align:right">Amount</th><th class="bal-col" style="text-align:right;display:none">Balance</th><th></th></tr></thead><tbody id="txn-tbody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody></table></div>
   <div class="pagination"><span id="txn-summary" style="margin-right:auto"></span><button class="btn btn-ghost btn-sm" id="t-prev" onclick="txnPage(-1)" disabled>← Prev</button><span id="t-page-lbl"></span><button class="btn btn-ghost btn-sm" id="t-next" onclick="txnPage(1)">Next →</button></div>
@@ -938,22 +953,22 @@
     </div>
   </div>
 </div>
-<script src="/static/js/core.js?v=1773874573"></script>
-<script src="/static/js/sync.js?v=1773874573"></script>
-<script src="/static/js/dashboard.js?v=1773874573"></script>
-<script src="/static/js/history.js?v=1773874573"></script>
-<script src="/static/js/insights.js?v=1773874573"></script>
-<script src="/static/js/sankey.js?v=1773874573"></script>
-<script src="/static/js/spending.js?v=1773874573"></script>
-<script src="/static/js/transactions.js?v=1773874573"></script>
-<script src="/static/js/transfers.js?v=1773874573"></script>
-<script src="/static/js/ai_categorize.js?v=1773874573"></script>
-<script src="/static/js/rules.js?v=1773874573"></script>
-<script src="/static/js/settings.js?v=1773874573"></script>
-<script src="/static/js/subscriptions.js?v=1773874573"></script>
-<script src="/static/js/imports.js?v=1773874573"></script>
-<script src="/static/js/reconcile.js?v=1773874573"></script>
-<script src="/static/js/feedback.js?v=1773874573"></script>
+<script src="/static/js/core.js?v=1773875358"></script>
+<script src="/static/js/sync.js?v=1773875358"></script>
+<script src="/static/js/dashboard.js?v=1773875358"></script>
+<script src="/static/js/history.js?v=1773875358"></script>
+<script src="/static/js/insights.js?v=1773875358"></script>
+<script src="/static/js/sankey.js?v=1773875358"></script>
+<script src="/static/js/spending.js?v=1773875358"></script>
+<script src="/static/js/transactions.js?v=1773875358"></script>
+<script src="/static/js/transfers.js?v=1773875358"></script>
+<script src="/static/js/ai_categorize.js?v=1773875358"></script>
+<script src="/static/js/rules.js?v=1773875358"></script>
+<script src="/static/js/settings.js?v=1773875358"></script>
+<script src="/static/js/subscriptions.js?v=1773875358"></script>
+<script src="/static/js/imports.js?v=1773875358"></script>
+<script src="/static/js/reconcile.js?v=1773875358"></script>
+<script src="/static/js/feedback.js?v=1773875358"></script>
 
 <!-- Feedback FAB -->
 <!-- Account Detail Modal -->
@@ -1155,12 +1170,13 @@
   </div>
 </div>
 
-<script src="/static/js/manual_entry.js?v=1773874573"></script>
-<script src="/static/js/account_detail.js?v=1773874573"></script>
-<script src="/static/js/splits.js?v=1773874573"></script>
-<script src="/static/js/tags.js?v=1773874573"></script>
-<script src="/static/js/bills.js?v=1773874573"></script>
+<script src="/static/js/manual_entry.js?v=1773875358"></script>
+<script src="/static/js/account_detail.js?v=1773875358"></script>
+<script src="/static/js/splits.js?v=1773875358"></script>
+<script src="/static/js/tags.js?v=1773875358"></script>
+<script src="/static/js/bills.js?v=1773875358"></script>
 <script src="/static/js/goals.js"></script>
 <script src="/static/js/review.js"></script>
+<script src="/static/js/bulk.js"></script>
 </body>
 </html>
