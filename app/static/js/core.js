@@ -117,18 +117,6 @@ function catBadge(id,name){if(!id||!name)return'<span style="color:#475569;font-
 // ── Accounts ──
 async function loadAccounts(){accounts=await api('/api/accounts');const opts='<option value="">All accounts</option>'+accounts.map(a=>`<option value="${a.id}">${a.org?a.org+' – ':''}${a.name}</option>`).join('');if($('t-account'))$('t-account').innerHTML=opts;}
 
-// ── Sidebar nav ──
-(function(){
-  var sb=document.getElementById('sidebar');
-  if(!sb)return;
-  sb.addEventListener('click',function(e){
-    var a=e.target.closest('a[data-page]');
-    if(!a)return;
-    e.preventDefault();
-    showPage(a.dataset.page);
-  });
-})();
-
 // ── Bottom nav ──
 (function(){
   var bn=document.getElementById('bottom-nav');
