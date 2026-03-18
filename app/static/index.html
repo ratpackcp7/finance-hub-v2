@@ -323,7 +323,7 @@
     <div class="card"><div class="card-title">Spending This Month — by Category</div><div class="donut-wrap"><canvas id="chart-donut"></canvas></div></div>
     <div class="card"><div class="card-title">Monthly Spending vs Income</div><div class="chart-wrap"><canvas id="chart-bar"></canvas></div></div>
   </div>
-  <div class="card" id="dash-sankey-card" style="display:none"><div class="card-title">Money Flow — This Month</div><div id="sankey-wrap" style="width:100%;overflow-x:auto"></div></div>
+  <div class="card" id="dash-sankey-card" style="display:none"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem"><div class="card-title" style="margin:0" id="sankey-title">Money Flow — This Month</div><div class="date-range-row" style="margin:0;gap:.35rem"><button class="quick-btn active" onclick="setSankeyRange('this-month',this)">This Month</button><button class="quick-btn" onclick="setSankeyRange('last-month',this)">Last Month</button><button class="quick-btn" onclick="setSankeyRange('3-months',this)">3 Months</button><button class="quick-btn" onclick="setSankeyRange('ytd',this)">YTD</button></div></div><div id="sankey-wrap" style="width:100%;overflow-x:auto"></div></div>
   <div class="card"><div class="card-title">Recent Syncs</div><div id="sync-log-list"><p class="empty">Loading...</p></div></div>
 </div>
 <div class="page" id="page-spending">

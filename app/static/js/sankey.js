@@ -1,10 +1,29 @@
 // Finance Hub — sankey.js
 // Auto-split from index.html
 
+let _sankeyStart=null,_sankeyEnd=null;
+
+function setSankeyRange(key,btn){
+  // Update active button
+  const row=btn.parentElement;
+  row.querySelectorAll('.quick-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const now=new Date(),y=now.getFullYear(),mo=now.getMonth();
+  let from,to,label;
+  if(key==='this-month'){from=new Date(y,mo,1);to=new Date(y,mo+1,0);label='This Month';}
+  else if(key==='last-month'){from=new Date(y,mo-1,1);to=new Date(y,mo,0);label='Last Month';}
+  else if(key==='3-months'){from=new Date(y,mo-2,1);to=new Date(y,mo+1,0);label='3 Months';}
+  else if(key==='ytd'){from=new Date(y,0,1);to=new Date(y,mo+1,0);label='Year to Date';}
+  _sankeyStart=from.toISOString().slice(0,10);
+  _sankeyEnd=to.toISOString().slice(0,10);
+  const t=$('sankey-title');if(t)t.textContent='Money Flow — '+label;
+  loadSankey();
+}
+
 async function loadSankey(){
   const now=new Date(),y=now.getFullYear(),m=now.getMonth();
-  const start=`${y}-${String(m+1).padStart(2,'0')}-01`;
-  const end=`${y}-${String(m+1).padStart(2,'0')}-${String(new Date(y,m+1,0).getDate()).padStart(2,'0')}`;
+  const start=_sankeyStart||`${y}-${String(m+1).padStart(2,'0')}-01`;
+  const end=_sankeyEnd||`${y}-${String(m+1).padStart(2,'0')}-${String(new Date(y,m+1,0).getDate()).padStart(2,'0')}`;
   try{
     const d=await api(`/api/spending/flow?start_date=${start}&end_date=${end}`);
     if(!d.income.length&&!d.spending.length){$('dash-sankey-card').style.display='none';return;}
