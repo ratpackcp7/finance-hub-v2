@@ -317,41 +317,105 @@ function renderDividends(data) {
 // ═══════════════════════════════════════
 function renderHoldingsTable(data) {
   var el = $('ins-holdings-table');
+
+  // Populate account dropdown for add form
+  populateHoldingAccounts();
+
   if (!data.holdings.length) {
-    el.innerHTML = '<p class="empty">No holdings tracked yet. Add them in Settings → Holdings.</p>';
+    el.innerHTML = '<p class="empty">No holdings tracked yet. Add one below.</p>';
     return;
   }
+
+  var inputStyle = 'width:75px;font-size:.75rem;text-align:right;padding:.2rem .3rem;background:#0d1117;color:#e2e8f0;border:1px solid #1e2530;border-radius:3px';
+
   var html = '<div style="overflow-x:auto"><table style="font-size:.78rem"><thead><tr>'
     + '<th>Ticker</th><th>Name</th><th style="text-align:right">Shares</th>'
     + '<th style="text-align:right">Price</th><th style="text-align:right">Value</th>'
-    + '<th style="text-align:right">Cost Basis</th><th style="text-align:right">Gain/Loss</th>'
+    + '<th style="text-align:right">Cost/Share</th><th style="text-align:right">Gain/Loss</th><th></th>'
     + '</tr></thead><tbody>';
 
   data.holdings.forEach(function(h) {
-    var price = h.last_price ? fmt(h.last_price) : '—';
-    var val = h.market_value ? fmt(h.market_value) : '—';
-    var basis = h.cost_basis ? fmt(h.cost_basis) : '—';
-    var gainStr = '—', gainColor = '#64748b';
+    var price = h.last_price ? fmt(h.last_price) : '\u2014';
+    var val = h.market_value ? fmt(h.market_value) : '\u2014';
+    var gainStr = '\u2014', gainColor = '#64748b';
     if (h.gain !== null) {
       gainColor = h.gain >= 0 ? '#86efac' : '#fca5a5';
       gainStr = fmt(h.gain) + (h.gain_pct !== null ? ' (' + h.gain_pct.toFixed(1) + '%)' : '');
     }
-    html += '<tr><td style="font-weight:600;color:#818cf8">' + h.ticker + '</td>'
-      + '<td>' + h.name + '</td>'
-      + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + h.shares.toFixed(2) + '</td>'
-      + '<td style="text-align:right">' + price + '</td>'
+    html += '<tr>'
+      + '<td style="font-weight:600;color:#818cf8">' + h.ticker + '</td>'
+      + '<td style="font-size:.74rem">' + h.name + '</td>'
+      + '<td style="text-align:right"><input type="number" step="0.01" value="' + h.shares.toFixed(4) + '" style="' + inputStyle + '" onchange="saveHolding(' + h.id + ',{shares:parseFloat(this.value)})"></td>'
+      + '<td style="text-align:right;color:#64748b">' + price + '</td>'
       + '<td style="text-align:right;font-weight:600">' + val + '</td>'
-      + '<td style="text-align:right;color:#64748b">' + basis + '</td>'
-      + '<td style="text-align:right;color:' + gainColor + '">' + gainStr + '</td></tr>';
+      + '<td style="text-align:right"><input type="number" step="0.01" value="' + (h.cost_basis || 0) + '" style="' + inputStyle + '" onchange="saveHolding(' + h.id + ',{cost_basis:parseFloat(this.value)})"></td>'
+      + '<td style="text-align:right;color:' + gainColor + '">' + gainStr + '</td>'
+      + '<td><button class="btn btn-ghost btn-sm" style="color:#ef4444;font-size:.68rem;padding:.1rem .3rem" onclick="removeHolding(' + h.id + ')">\u2715</button></td></tr>';
   });
 
   html += '<tr style="border-top:2px solid #1e2530;font-weight:700"><td colspan="4">Total Portfolio</td>'
     + '<td style="text-align:right">' + fmt(data.total_value) + '</td>'
     + '<td style="text-align:right;color:#64748b">' + fmt(data.total_cost) + '</td>'
-    + '<td style="text-align:right;color:' + (data.total_gain >= 0 ? '#86efac' : '#fca5a5') + '">'
-    + (data.total_gain !== null ? fmt(data.total_gain) : '—') + '</td></tr>';
+    + '<td style="text-align:right;color:' + ((data.total_gain||0) >= 0 ? '#86efac' : '#fca5a5') + '">'
+    + (data.total_gain !== null ? fmt(data.total_gain) : '\u2014') + '</td><td></td></tr>';
   html += '</tbody></table></div>';
   el.innerHTML = html;
+}
+
+async function populateHoldingAccounts() {
+  var sel = $('hld-account');
+  if (!sel || sel.options.length > 1) return;
+  try {
+    var accts = await api('/api/accounts');
+    var inv = accts.filter(function(a) { return ['investment','retirement','brokerage'].indexOf(a.account_type) >= 0; });
+    inv.forEach(function(a) {
+      var short = a.name.length > 35 ? a.name.slice(0, 32) + '...' : a.name;
+      var opt = document.createElement('option');
+      opt.value = a.id; opt.textContent = short;
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+async function saveHolding(id, data) {
+  try {
+    await api('/api/holdings/' + id, { method: 'PATCH', body: JSON.stringify(data) });
+    toast('Updated', 'success');
+    // Reload just the holdings part
+    var hData = await api('/api/holdings');
+    renderHoldingsTable(hData);
+  } catch (e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function addHolding() {
+  var acctId = $('hld-account').value;
+  var ticker = ($('hld-ticker').value || '').trim().toUpperCase();
+  var name = ($('hld-name').value || '').trim();
+  var shares = parseFloat($('hld-shares').value) || 0;
+  var basis = parseFloat($('hld-basis').value) || null;
+  if (!acctId || !ticker || !name) { toast('Fill account, ticker, and name', 'error'); return; }
+  try {
+    await api('/api/holdings', { method: 'POST', body: JSON.stringify({
+      account_id: acctId, ticker: ticker, name: name, shares: shares, cost_basis: basis
+    })});
+    toast('Added ' + ticker, 'success');
+    $('hld-ticker').value = ''; $('hld-name').value = ''; $('hld-shares').value = ''; $('hld-basis').value = '';
+    // Refresh prices for new ticker then reload
+    await api('/api/holdings/refresh-prices', { method: 'POST', body: '{}' });
+    var hData = await api('/api/holdings');
+    renderHoldingsTable(hData);
+  } catch (e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function removeHolding(id) {
+  customConfirm('Delete this holding?', async function() {
+    try {
+      await api('/api/holdings/' + id, { method: 'DELETE' });
+      toast('Deleted', 'success');
+      var hData = await api('/api/holdings');
+      renderHoldingsTable(hData);
+    } catch (e) { toast('Error: ' + e.message, 'error'); }
+  });
 }
 
 async function refreshHoldingPrices() {
