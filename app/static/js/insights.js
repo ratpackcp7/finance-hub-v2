@@ -851,7 +851,7 @@ function showAccountDetail(accountId) {
   // Summary cards
   var gainColor = totalGain >= 0 ? '#86efac' : '#fca5a5';
   $('acct-detail-summary').innerHTML =
-    '<div style="display:flex;gap:.75rem;flex-wrap:wrap">'
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.5rem">'
     + '<div style="background:#1e2530;border-radius:8px;padding:.6rem 1rem;flex:1;min-width:120px">'
     + '<div style="font-size:.68rem;color:#64748b;text-transform:uppercase">Market Value</div>'
     + '<div style="font-size:1.2rem;font-weight:700;color:#f8fafc">' + fmt(totalVal) + '</div></div>'
@@ -942,5 +942,5 @@ function showAccountDetail(accountId) {
   $('acct-detail-holdings').innerHTML = tbl;
 
   // Show modal
-  $('acct-detail-modal').classList.add('active');
+  $('acct-detail-modal').style.display='flex';
 }
