@@ -88,7 +88,7 @@ def budget_status(start_date: Optional[date] = None, end_date: Optional[date] = 
             return {"budgets": [], "period": {"start": start_date.isoformat(), "end": end_date.isoformat()}}
         cur.execute(
             "SELECT t.category_id, SUM(ABS(t.amount)) "
-            "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
+            "FROM spending_items t LEFT JOIN categories c ON t.category_id = c.id "
             "WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE "
             "AND COALESCE(c.name, '') NOT IN ('Credit Card Pay', 'Transfer') "
             "AND t.posted >= %s AND t.posted <= %s GROUP BY t.category_id",

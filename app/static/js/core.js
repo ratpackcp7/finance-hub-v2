@@ -159,8 +159,17 @@ window.addEventListener('popstate',function(e){
   }
 });
 
+// ── Tags for filter ──
+async function loadTagFilter(){
+  try{
+    var tags=await api('/api/tags');
+    var sel=$('t-tag');
+    if(sel)sel.innerHTML='<option value="">All tags</option>'+tags.map(function(t){return'<option value="'+t.id+'">'+t.name+(t.count?' ('+t.count+')':'')+' </option>';}).join('');
+  }catch(e){console.error('Tag filter:',e);}
+}
+
 // ── Boot ──
-loadCategories();
+loadCategories();loadTagFilter();
 // Load page from URL hash or default to dashboard
 (function(){
   var hash=window.location.hash.replace('#/','');

@@ -67,7 +67,8 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
                      end_date: Optional[date] = None, search: Optional[str] = None,
                      pending: Optional[bool] = None, txn_type: Optional[str] = None,
                      recurring: Optional[bool] = None,
-                     exclude_transfers: Optional[bool] = None):
+                     exclude_transfers: Optional[bool] = None,
+                     tag_id: Optional[int] = None):
     conn = db_conn()
     try:
         cur = conn.cursor()
@@ -77,6 +78,12 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
             txn_type=txn_type, uncategorized=uncategorized, recurring=recurring,
             exclude_transfers=exclude_transfers or False
         )
+        # Tag filter: join transaction_tags if filtering by tag
+        tag_join = ""
+        if tag_id is not None:
+            tag_join = "JOIN transaction_tags tt ON t.id = tt.txn_id"
+            filters.append("tt.tag_id = %s")
+            params.append(tag_id)
         where = ("WHERE " + " AND ".join(filters)) if filters else ""
         if account_id:
             cur.execute(
@@ -87,7 +94,7 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
                            t.category_source, bal.running_balance, t.recurring, t.transfer_pair_id, t.source, t.has_splits
                     FROM transactions t JOIN accounts a ON t.account_id = a.id
                     LEFT JOIN categories c ON t.category_id = c.id
-                    LEFT JOIN bal ON t.id = bal.id {where}
+                    LEFT JOIN bal ON t.id = bal.id {tag_join} {where}
                     ORDER BY t.posted DESC, t.id LIMIT %s OFFSET %s""",
                 [account_id] + params + [limit, offset])
         else:
@@ -96,11 +103,11 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
                            t.category_id, c.name, t.category_manual, t.pending, t.notes, t.is_transfer,
                            t.category_source, NULL as running_balance, t.recurring, t.transfer_pair_id, t.source, t.has_splits
                     FROM transactions t JOIN accounts a ON t.account_id = a.id
-                    LEFT JOIN categories c ON t.category_id = c.id {where}
+                    LEFT JOIN categories c ON t.category_id = c.id {tag_join} {where}
                     ORDER BY t.posted DESC, t.id LIMIT %s OFFSET %s""",
                 params + [limit, offset])
         rows = cur.fetchall()
-        cur.execute(f"SELECT COUNT(*), COALESCE(SUM(t.amount), 0) FROM transactions t LEFT JOIN categories c ON t.category_id = c.id {where}", params)
+        cur.execute(f"SELECT COUNT(*), COALESCE(SUM(t.amount), 0) FROM transactions t LEFT JOIN categories c ON t.category_id = c.id {tag_join} {where}", params)
         count_row = cur.fetchone()
         total = count_row[0]
         total_amount = float(count_row[1])

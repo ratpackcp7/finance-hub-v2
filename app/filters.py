@@ -61,3 +61,21 @@ def income_filters():
         "t.is_transfer = FALSE",
         "COALESCE(c.is_income, FALSE) = TRUE",
     ]
+
+
+# ─── Split-aware query helpers ───
+# For queries that GROUP BY category, use spending_items view
+# which correctly distributes split transactions across their split categories.
+# For aggregate totals (over-time, by-payee), regular transactions table is fine
+# because split amounts sum to the parent amount.
+
+SPLIT_AWARE_TABLE = "spending_items"  # VIEW defined in migration 014
+
+def spending_filters_split_aware():
+    """Like spending_filters() but uses split-aware view."""
+    return [
+        "t.amount < 0",
+        "t.pending = FALSE",
+        "t.is_transfer = FALSE",
+        "COALESCE(c.name, \'\') NOT IN (\'Credit Card Pay\', \'Transfer\')",
+    ]

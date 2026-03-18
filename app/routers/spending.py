@@ -23,7 +23,7 @@ def spending_by_category(start_date: Optional[date] = None, end_date: Optional[d
         if account_id: f.append("t.account_id = %s"); p.append(account_id)
         cur.execute(
             f"SELECT COALESCE(c.name, 'Uncategorized'), c.color, c.group_name, SUM(ABS(t.amount)), COUNT(*) "
-            f"FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
+            f"FROM spending_items t LEFT JOIN categories c ON t.category_id = c.id "
             f"WHERE {' AND '.join(f)} GROUP BY c.name, c.color, c.group_name ORDER BY 4 DESC", p)
         rows = cur.fetchall()
     finally:
@@ -88,7 +88,7 @@ def spending_deltas(start_date: Optional[date] = None, end_date: Optional[date] 
         cur = conn.cursor()
         cur.execute(
             "SELECT COALESCE(c.name, 'Uncategorized'), c.color, SUM(ABS(t.amount)) "
-            "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
+            "FROM spending_items t LEFT JOIN categories c ON t.category_id = c.id "
             "WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE "
             "AND COALESCE(c.name, '') NOT IN ('Credit Card Pay', 'Transfer') "
             "AND t.posted >= %s AND t.posted <= %s GROUP BY c.name, c.color",
@@ -96,7 +96,7 @@ def spending_deltas(start_date: Optional[date] = None, end_date: Optional[date] 
         current = {r[0]: {"color": r[1] or "#475569", "total": float(r[2])} for r in cur.fetchall()}
         cur.execute(
             "SELECT COALESCE(c.name, 'Uncategorized'), SUM(ABS(t.amount)) "
-            "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
+            "FROM spending_items t LEFT JOIN categories c ON t.category_id = c.id "
             "WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE "
             "AND COALESCE(c.name, '') NOT IN ('Credit Card Pay', 'Transfer') "
             "AND t.posted >= %s AND t.posted <= %s GROUP BY c.name",
@@ -142,7 +142,7 @@ def spending_flow(start_date: Optional[date] = None, end_date: Optional[date] = 
         income = [{"name": r[0], "color": r[1] or "#4ade80", "amount": float(r[2])} for r in cur.fetchall()]
         cur.execute(
             "SELECT COALESCE(c.name, 'Uncategorized'), c.color, SUM(ABS(t.amount)) "
-            "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
+            "FROM spending_items t LEFT JOIN categories c ON t.category_id = c.id "
             "WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE "
             "AND COALESCE(c.name, '') NOT IN ('Credit Card Pay', 'Transfer') "
             "AND t.posted >= %s AND t.posted <= %s GROUP BY c.name, c.color ORDER BY 3 DESC",
@@ -223,7 +223,7 @@ def budget_progress(month: Optional[str] = None):
         budgets = cur.fetchall()
         cur.execute(
             "SELECT t.category_id, SUM(ABS(t.amount)) "
-            "FROM transactions t "
+            "FROM spending_items t "
             "WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE "
             "AND t.posted >= %s AND t.posted < %s "
             "GROUP BY t.category_id", (start_date, end_date))
@@ -279,7 +279,7 @@ def budget_vs_actual(month: Optional[str] = None):
         # Get actual spending per category for the month
         cur.execute(
             "SELECT t.category_id, SUM(ABS(t.amount)) "
-            "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
+            "FROM spending_items t LEFT JOIN categories c ON t.category_id = c.id "
             "WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE "
             "AND COALESCE(c.name, '') NOT IN ('Credit Card Pay', 'Transfer') "
             "AND t.posted >= %s AND t.posted <= %s "
@@ -341,7 +341,7 @@ def spending_trends(months: int = 3, top: int = 6):
             "SELECT DATE_TRUNC('month', t.posted)::date AS m, "
             "COALESCE(c.name, 'Uncategorized') AS cat, c.color, "
             "SUM(ABS(t.amount)) "
-            "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
+            "FROM spending_items t LEFT JOIN categories c ON t.category_id = c.id "
             "WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE "
             "AND t.posted >= %s AND c.name NOT IN ('Credit Card Pay', 'Transfer') "
             "GROUP BY m, cat, c.color ORDER BY m ASC, 4 DESC", (cutoff,))
