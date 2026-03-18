@@ -32,7 +32,7 @@ function customConfirm(msg,onOk,okLabel,okClass){
 document.querySelectorAll('nav:first-of-type a[data-page]').forEach(a=>{a.addEventListener('click',()=>showPage(a.dataset.page));});
 
 // Pages reachable from the "More" menu (not in bottom nav)
-const MORE_PAGES = new Set(['rules','subscriptions','imports','reconcile','flow','insights']);
+const MORE_PAGES = new Set(['rules','subscriptions','imports','reconcile','flow','insights','history']);
 
 function showPage(name){
   // Close More overlay if open
@@ -65,6 +65,7 @@ function showPage(name){
   if(name==='reconcile'){loadReconAccounts();loadReconHistory();}
   if(name==='flow')loadFlowPage();
   if(name==='insights')loadInsights();
+  if(name==='history')loadHistory();
 
   // Push browser history (skip if this was triggered by popstate)
   if(!window._isPopState){

@@ -217,6 +217,56 @@ def dividend_summary():
         "monthly_totals": [{"month": m, "total": t} for m, t in sorted(monthly_totals.items())]
     }
 
+
+@router.get("/investment/performance")
+def investment_performance(months: int = 0):
+    """Monthly investment performance from Vanguard data."""
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        if months > 0:
+            cutoff = date.today() - timedelta(days=months * 31)
+            cur.execute(
+                "SELECT month, beginning_balance, deposits_withdrawals, market_gain_loss, "
+                "income_returns, personal_investment_returns, cumulative_returns, ending_balance "
+                "FROM investment_performance WHERE month >= %s ORDER BY month ASC", (cutoff,))
+        else:
+            cur.execute(
+                "SELECT month, beginning_balance, deposits_withdrawals, market_gain_loss, "
+                "income_returns, personal_investment_returns, cumulative_returns, ending_balance "
+                "FROM investment_performance ORDER BY month ASC")
+        rows = cur.fetchall()
+    finally:
+        db_put(conn)
+    records = []
+    for r in rows:
+        records.append({
+            "month": r[0].isoformat()[:7],
+            "beginning_balance": float(r[1]) if r[1] else 0,
+            "deposits": float(r[2]) if r[2] else 0,
+            "market_gain_loss": float(r[3]) if r[3] else 0,
+            "income_returns": float(r[4]) if r[4] else 0,
+            "personal_returns": float(r[5]) if r[5] else 0,
+            "cumulative_returns": float(r[6]) if r[6] else 0,
+            "ending_balance": float(r[7]) if r[7] else 0,
+        })
+    # Summary stats
+    total_deposits = sum(r["deposits"] for r in records)
+    total_returns = records[-1]["cumulative_returns"] if records else 0
+    total_income = sum(r["income_returns"] for r in records)
+    return {
+        "records": records,
+        "summary": {
+            "total_deposits": total_deposits,
+            "total_returns": total_returns,
+            "total_income": total_income,
+            "months": len(records),
+            "start": records[0]["month"] if records else None,
+            "end": records[-1]["month"] if records else None,
+            "rate_of_return": 23.3,  # from Vanguard
+        }
+    }
+
 @router.get("/net-worth/history")
 def net_worth_history(months: int = 12):
     conn = db_conn()
