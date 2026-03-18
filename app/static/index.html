@@ -416,7 +416,40 @@
   <div class="card txn-card-wrap" style="padding:0;overflow:hidden"><table class="txn-table"><thead><tr><th>Date</th><th>Description / Payee</th><th>Account</th><th>Category</th><th style="text-align:right">Amount</th><th class="bal-col" style="text-align:right;display:none">Balance</th><th></th></tr></thead><tbody id="txn-tbody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody></table></div>
   <div class="pagination"><span id="txn-summary" style="margin-right:auto"></span><button class="btn btn-ghost btn-sm" id="t-prev" onclick="txnPage(-1)" disabled>← Prev</button><span id="t-page-lbl"></span><button class="btn btn-ghost btn-sm" id="t-next" onclick="txnPage(1)">Next →</button></div>
 </div>
-<div class="page" id="page-rules"><div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem"><div class="card-title" style="margin:0">Payee Rules</div><button class="btn btn-primary btn-sm" onclick="openRuleModal()">+ Add Rule</button></div><p style="font-size:.8rem;color:#64748b;margin-bottom:1rem">Rules auto-categorize transactions on sync. Pattern is case-insensitive substring match.</p><table><thead><tr><th>Pattern</th><th>Normalized Payee</th><th>Category</th><th>Priority</th><th></th></tr></thead><tbody id="rules-tbody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody></table></div></div>
+<div class="page" id="page-rules">
+  <!-- Preview / Test Card -->
+  <div class="card" style="margin-bottom:1rem">
+    <div class="card-title">Test a Pattern</div>
+    <p style="font-size:.8rem;color:#64748b;margin-bottom:.75rem">See which transactions would match before creating a rule.</p>
+    <div style="display:flex;gap:.5rem;align-items:flex-end;flex-wrap:wrap;margin-bottom:.5rem">
+      <div class="field" style="flex:1;min-width:180px;margin:0">
+        <label>Pattern</label>
+        <input type="text" id="rp-pattern" placeholder="e.g. walmart, amazon, shell" onkeydown="if(event.key==='Enter')runPagePreview()">
+      </div>
+      <div class="field" style="width:100px;margin:0">
+        <label>Min $</label>
+        <input type="number" id="rp-amount-min" step="0.01" placeholder="0">
+      </div>
+      <div class="field" style="width:100px;margin:0">
+        <label>Max $</label>
+        <input type="number" id="rp-amount-max" step="0.01" placeholder="any">
+      </div>
+      <button class="btn btn-primary" onclick="runPagePreview()" style="margin-bottom:0;height:36px">🔍 Preview</button>
+      <button class="btn btn-success" onclick="openRuleModal($('rp-pattern').value)" style="margin-bottom:0;height:36px">+ Create Rule</button>
+    </div>
+    <div id="rp-counts" style="font-size:.82rem;margin-bottom:.25rem"></div>
+    <div id="rp-results"></div>
+  </div>
+
+  <!-- Rules Table -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+      <div><div class="card-title" style="margin:0">Payee Rules</div><div id="rules-count" style="font-size:.72rem;color:#64748b;margin-top:.2rem"></div></div>
+      <button class="btn btn-primary btn-sm" onclick="openRuleModal()">+ Add Rule</button>
+    </div>
+    <table><thead><tr><th>Pattern</th><th>Normalized Payee</th><th>Category</th><th>Priority</th><th></th><th></th></tr></thead><tbody id="rules-tbody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody></table>
+  </div>
+</div>
 <div class="page" id="page-settings">
   <div class="grid-2">
     <div class="card"><div class="card-title">Accounts</div><div id="accounts-list"><p class="empty">Loading...</p></div></div>
@@ -760,7 +793,36 @@
   </div>
   <div class="modal-actions"><button class="btn btn-danger btn-sm" id="mt-delete-btn" style="display:none;margin-right:auto" onclick="deleteManualTxn(editingTxnId)">🗑 Delete</button><button class="btn btn-ghost" onclick="closeModal('modal-txn')">Cancel</button><button class="btn btn-primary" onclick="saveTxn()">Save</button></div>
 </div></div>
-<div class="modal-bg" id="modal-rule"><div class="modal"><div class="modal-header"><h3>Add Payee Rule</h3><button class="modal-close" onclick="closeModal('modal-rule')">✕</button></div><div class="field"><label>Match Pattern</label><input type="text" id="mr-pattern" placeholder="e.g. walmart, shell, netflix"></div><div class="field"><label>Normalized Payee Name</label><input type="text" id="mr-payee" placeholder="e.g. Walmart"></div><div class="field"><label>Category</label><select id="mr-category"><option value="">None</option></select></div><div class="field"><label>Priority</label><input type="number" id="mr-priority" value="0" min="0"></div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('modal-rule')">Cancel</button><button class="btn btn-primary" onclick="saveRule()">Save Rule</button></div></div></div>
+<div class="modal-bg" id="modal-rule" onclick="if(event.target===this)closeModal(this.id)"><div class="modal" style="width:min(600px,95vw)">
+  <div class="modal-header"><h3>Add Payee Rule</h3><button class="modal-close" onclick="closeModal('modal-rule')">✕</button></div>
+  <div class="field">
+    <label>Match Pattern *</label>
+    <div style="display:flex;gap:.5rem">
+      <input type="text" id="mr-pattern" placeholder="e.g. walmart, shell, netflix" style="flex:1" oninput="clearTimeout(window._mrDebounce);window._mrDebounce=setTimeout(runModalPreview,400)">
+      <button class="btn btn-ghost btn-sm" onclick="runModalPreview()" style="white-space:nowrap">🔍 Test</button>
+    </div>
+  </div>
+  <div id="mr-preview-counts" style="font-size:.78rem;margin-bottom:.4rem"></div>
+  <div id="mr-preview-results" style="background:#0a0d14;border-radius:6px;margin-bottom:.75rem"></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
+    <div class="field"><label>Normalized Payee</label><input type="text" id="mr-payee" placeholder="e.g. Walmart"></div>
+    <div class="field"><label>Category</label><select id="mr-category"><option value="">None</option></select></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.6rem">
+    <div class="field"><label>Priority</label><input type="number" id="mr-priority" value="0" min="0"></div>
+    <div class="field"><label>Amount Min ($)</label><input type="number" id="mr-amount-min" step="0.01" placeholder="any" onchange="runModalPreview()"></div>
+    <div class="field"><label>Amount Max ($)</label><input type="number" id="mr-amount-max" step="0.01" placeholder="any" onchange="runModalPreview()"></div>
+  </div>
+  <div class="field">
+    <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer">
+      <input type="checkbox" id="mr-set-transfer"> Also mark matching transactions as transfers
+    </label>
+  </div>
+  <div class="modal-actions">
+    <button class="btn btn-ghost" onclick="closeModal('modal-rule')">Cancel</button>
+    <button class="btn btn-primary" onclick="saveRule()">Save Rule</button>
+  </div>
+</div></div>
 <div class="modal-bg" id="modal-cat"><div class="modal"><div class="modal-header"><h3>Add Category</h3><button class="modal-close" onclick="closeModal('modal-cat')">✕</button></div><div class="field"><label>Name</label><input type="text" id="mc-name"></div><div class="field"><label>Group</label><input type="text" id="mc-group" placeholder="e.g. Food, Housing"></div><div class="field"><label>Color</label><input type="color" id="mc-color" value="#64748b" style="width:60px;height:36px;padding:2px;cursor:pointer;background:none;border:1px solid #1e2530;border-radius:6px"></div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('modal-cat')">Cancel</button><button class="btn btn-primary" onclick="saveCat()">Save</button></div></div></div>
 <div class="modal-bg" id="modal-edit-cat"><div class="modal"><div class="modal-header"><h3>Edit Category</h3><button class="modal-close" onclick="closeModal('modal-edit-cat')">✕</button></div><div class="field"><label>Name</label><input type="text" id="mec-name"></div><div class="field"><label>Color</label><input type="color" id="mec-color" style="width:60px;height:36px;padding:2px;cursor:pointer;background:none;border:1px solid #1e2530;border-radius:6px"></div><div class="field"><label>Group</label><input type="text" id="mec-group" placeholder="e.g. Food & Drink, Housing & Bills"></div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('modal-edit-cat')">Cancel</button><button class="btn btn-primary" onclick="saveEditCat()">Save</button></div></div></div>
 <div class="modal-bg" id="modal-budget"><div class="modal"><div class="modal-header"><h3>Set Monthly Budget</h3><button class="modal-close" onclick="closeModal('modal-budget')">✕</button></div><div class="field"><label>Category</label><select id="mb-category"></select></div><div class="field"><label>Monthly Amount ($)</label><input type="number" id="mb-amount" min="0" step="10" placeholder="e.g. 500"></div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('modal-budget')">Cancel</button><button class="btn btn-primary" onclick="saveBudget()">Save Budget</button></div></div></div>
@@ -789,22 +851,22 @@
     </div>
   </div>
 </div>
-<script src="/static/js/core.js?v=1773870302"></script>
-<script src="/static/js/sync.js?v=1773870302"></script>
-<script src="/static/js/dashboard.js?v=1773870302"></script>
-<script src="/static/js/history.js?v=1773870302"></script>
-<script src="/static/js/insights.js?v=1773870302"></script>
-<script src="/static/js/sankey.js?v=1773870302"></script>
-<script src="/static/js/spending.js?v=1773870302"></script>
-<script src="/static/js/transactions.js?v=1773870302"></script>
-<script src="/static/js/transfers.js?v=1773870302"></script>
-<script src="/static/js/ai_categorize.js?v=1773870302"></script>
-<script src="/static/js/rules.js?v=1773870302"></script>
-<script src="/static/js/settings.js?v=1773870302"></script>
-<script src="/static/js/subscriptions.js?v=1773870302"></script>
-<script src="/static/js/imports.js?v=1773870302"></script>
-<script src="/static/js/reconcile.js?v=1773870302"></script>
-<script src="/static/js/feedback.js?v=1773870302"></script>
+<script src="/static/js/core.js?v=1773873123"></script>
+<script src="/static/js/sync.js?v=1773873123"></script>
+<script src="/static/js/dashboard.js?v=1773873123"></script>
+<script src="/static/js/history.js?v=1773873123"></script>
+<script src="/static/js/insights.js?v=1773873123"></script>
+<script src="/static/js/sankey.js?v=1773873123"></script>
+<script src="/static/js/spending.js?v=1773873123"></script>
+<script src="/static/js/transactions.js?v=1773873123"></script>
+<script src="/static/js/transfers.js?v=1773873123"></script>
+<script src="/static/js/ai_categorize.js?v=1773873123"></script>
+<script src="/static/js/rules.js?v=1773873123"></script>
+<script src="/static/js/settings.js?v=1773873123"></script>
+<script src="/static/js/subscriptions.js?v=1773873123"></script>
+<script src="/static/js/imports.js?v=1773873123"></script>
+<script src="/static/js/reconcile.js?v=1773873123"></script>
+<script src="/static/js/feedback.js?v=1773873123"></script>
 
 <!-- Feedback FAB -->
 <!-- Account Detail Modal -->
@@ -1006,10 +1068,10 @@
   </div>
 </div>
 
-<script src="/static/js/manual_entry.js?v=1773870302"></script>
-<script src="/static/js/account_detail.js?v=1773870302"></script>
-<script src="/static/js/splits.js?v=1773870302"></script>
-<script src="/static/js/tags.js?v=1773870302"></script>
-<script src="/static/js/bills.js?v=1773870302"></script>
+<script src="/static/js/manual_entry.js?v=1773873123"></script>
+<script src="/static/js/account_detail.js?v=1773873123"></script>
+<script src="/static/js/splits.js?v=1773873123"></script>
+<script src="/static/js/tags.js?v=1773873123"></script>
+<script src="/static/js/bills.js?v=1773873123"></script>
 </body>
 </html>
