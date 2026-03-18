@@ -1,7 +1,9 @@
 services:
 
   app:
-    build: ./app
+    build:
+      context: .
+      dockerfile: app/Dockerfile
     container_name: fhub-app
     restart: unless-stopped
     ports:
@@ -13,6 +15,7 @@ services:
         condition: service_healthy
     volumes:
       - ./app:/app
+      - ./shared:/app/shared
     environment:
       DB_HOST: db
       DB_PORT: 5432
@@ -25,7 +28,9 @@ services:
       - openrouter_key
 
   worker:
-    build: ./worker
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
     container_name: fhub-worker
     restart: unless-stopped
     networks:
@@ -35,12 +40,13 @@ services:
         condition: service_healthy
     volumes:
       - ./worker:/app
+      - ./shared:/app/shared
     environment:
       DB_HOST: db
       DB_PORT: 5432
       DB_NAME: fhub
       DB_USER: fhub
-      SYNC_HOUR: "6"        # daily sync at 6 AM CT
+      SYNC_HOUR: "6"
       SYNC_MINUTE: "0"
     secrets:
       - db_password

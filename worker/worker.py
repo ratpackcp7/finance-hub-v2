@@ -14,8 +14,7 @@ import psycopg2.pool
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-# syncer.py is shared — copied into worker container at build time
-from syncer import run_sync
+from shared.syncer import run_sync
 
 logging.basicConfig(
     level=logging.INFO,
@@ -83,7 +82,6 @@ def scheduled_sync():
     try:
         result = run_sync(conn)
         logger.info("Scheduled sync result: %s", result)
-        # Take balance snapshot after successful sync
         try:
             take_balance_snapshot(conn)
         except Exception as e:
@@ -114,12 +112,9 @@ def wait_for_db():
 
 def main():
     wait_for_db()
-
-    # Run an immediate sync on startup so data is fresh right away
     logger.info("Running startup sync")
     scheduled_sync()
 
-    # Schedule daily sync
     sync_hour   = int(os.environ.get("SYNC_HOUR", "6"))
     sync_minute = int(os.environ.get("SYNC_MINUTE", "0"))
 
