@@ -1,6 +1,6 @@
 # Finance Hub v2 — Product Roadmap
 
-*Updated March 18, 2026. Integrates original feature benchmark, ChatGPT product critique, and current build state.*
+*Updated March 18, 2026 (v4.6.0). Reflects full build state after Phase 1 MVP, Phase 2 Automation, and Operations batch.*
 
 ---
 
@@ -8,176 +8,98 @@
 
 Finance Hub is an import-first, self-hosted finance app designed for high-trust transaction review, strong normalization and rules, reliable balance tracking, and optional AI assistance that improves workflow without becoming a hidden source of truth.
 
-The product wins not by having the longest feature list, but by being the finance app a user can actually trust with real imported data.
-
 **One-sentence filter for roadmap decisions:**
 > Does this feature improve the trust, reviewability, or usefulness of imported financial data? If yes, it belongs early. If not, it's later-stage polish.
 
 ---
 
-## What's Already Built (as of March 17, 2026)
+## Current Stats (v4.6.0)
 
-### Core Infrastructure
-- FastAPI + PostgreSQL backend, Docker Compose on acerserver
-- SimpleFIN sync (daily 6AM + startup + manual trigger)
-- Git repo on GitHub (ratpackcp7/finance-hub-v2)
-- PG backup with 7-day rotation
-- household_id column on all 7 tables (schema prep, no query changes yet)
-
-### Transaction & Categorization Pipeline
-- Transaction list with filtering (date, account, category, search)
-- Payee rules engine: auto-apply on sync, match both description + payee fields, dedup on insert, retroactive apply on rule creation
-- AI-assisted categorization via OpenRouter (Gemini Flash Lite) — in-app button with review/approve flow
-- Category management (create, rename, delete)
-- 12 account types (checking, savings, credit, investment, retirement, 529, UTMA, HSA, brokerage, loan, mortgage, other)
-
-### Import Integrity (P0 — deployed March 17, 2026)
-- Import batch tracking: each sync creates a batch record with full raw SimpleFIN JSON
-- Near-duplicate detection: same account + amount +/-$0.02 + date +/-1 day flags for review
-- import_batch_id on every new transaction for provenance
-- Dupe review UI: side-by-side comparison cards with keep/remove actions
-- Batch history table with status, counts, error display
-
-### Analytics & Reporting
-- Spending charts by category, payee, and trend
-- Month-over-month spending deltas
-- Subscription/recurring charge detector
-- Sankey diagram (spending flow)
-- Drill-down stat boxes (clickable)
-- Net worth endpoint
-- Net worth snapshots (balance_snapshots table, daily after sync)
-
-### UI & Access
-- Mobile-first responsive UI with bottom nav (SVG icons)
-- Rich transaction detail modal
-- PWA manifest (installable)
-- Feedback button with local Postgres storage
-
-### Not Yet Built (from original P1 list)
-- Manual transaction entry
-- Split transactions
-- Bulk edit tools
-- Tags/labels
-- CSV import
+- 23 JS files, 16 migrations, 20 routers, 99 API endpoints
+- 14 pages, 14 modals
+- 3 Docker containers (app, worker, postgres)
+- SimpleFIN sync: 6AM + 6PM CT + startup + manual
+- Accessible at finance.cp7.dev via Cloudflare Zero Trust tunnel
+- Telegram monthly digest: 1st of each month at 9AM CT
 
 ---
 
-## Priority Framework
+## What's Built
 
-The original plan prioritized by **user-visible features** (manual entry, splits, net worth). The revised framework prioritizes by **data trust** — because in a finance product, trust IS the product. If the ledger can't be trusted, dashboards and reports are decorative.
-
-### Priority Tiers
-
-| Tier | Focus | Principle |
-|------|-------|-----------|
-| **P0 — Import Integrity** | Make incoming data safe, repeatable, explainable | System boundary between external financial data and internal ledger |
-| **P1 — Ledger Trust** | Make balances, transfers, and edits trustworthy over time | Can the user rely on this for real financial decisions? |
-| **P2 — Categorization Efficiency** | Reduce manual cleanup cost, preserve user control | Rules and categorization only work well on stable data |
-| **P3 — Reporting & Planning** | Turn trusted records into decision support | Reports only matter if underlying data is correct |
-| **P4 — Convenience & Polish** | Speed, accessibility, product feel | Usability improvements that don't change the core trust model |
-
----
-
-## Phase 0 — Import Integrity
-
-**Goal:** Ensure incoming data is safe, repeatable, and explainable.
-
-**Status:** Core items deployed. Remaining: pending/posted handling, CSV import, review queue.
-
-### Features
+### Phase 0 — Import Integrity ✅ Complete
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Idempotent imports | ✅ Done | SimpleFIN ID-based dedup + near-dupe detection |
-| Duplicate detection + review tools | ✅ Done | Side-by-side dupe review UI with keep/remove actions |
-| Import batch tracking | ✅ Done | Each sync gets a batch record with stats |
-| Raw import preservation | ✅ Done | Full SimpleFIN JSON stored per batch |
-| Source-aware import pipeline | ✅ Done | import_batch_id on every transaction |
-| Pending vs posted transaction handling | ❌ Not built | Model separately so pending charges don't skew balances |
-| CSV import with saved column mappings | ✅ Done | For institutions SimpleFIN doesn't cover (Ford Credit, Toyota Financial) |
-| Merchant/payee normalization pipeline | 🟡 Partial | Payee rules exist but no systematic normalization |
-| Review queue for uncategorized/low-confidence | 🟡 Partial | AI categorize button exists but no dedicated triage view |
+| Idempotent imports | ✅ | SimpleFIN ID-based dedup + near-dupe detection |
+| Duplicate detection + review | ✅ | Side-by-side dupe review UI, keep/remove actions |
+| Import batch tracking | ✅ | Each sync creates batch with full raw JSON |
+| Raw import preservation | ✅ | Raw payload + per-txn JSON, 90-day retention purge |
+| Source tracking | ✅ | `source` field: sync/csv/manual on all transactions |
+| CSV import | ✅ | 6 presets (Chase CC, Chase Checking, Discover, Citi, Ford Credit, Toyota Financial), auto-detect by headers, custom mappings |
+| Pending transaction handling | ✅ | Pending flag from SimpleFIN, ⏳ badge, excluded from spending |
+| Review queue | ✅ | Priority-sorted: uncategorized > AI > recent > large. Filter toggles, mark-reviewed, batch clear |
 
----
-
-## Phase 1 — Ledger Trust
-
-**Goal:** Ensure balances, transfers, and edits can be trusted over time.
-
-**Status:** Running balances and transfer detection deployed. Missing: reconciliation, balance checkpoints, edit history, transaction states.
-
-### Features
+### Phase 1 — Ledger Trust ✅ Complete
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Running account balances | ✅ Done | CTE window function, displayed per-account |
-| Transfer matching with manual override | ✅ Done | Auto-detect + is_transfer flag + transfer_pair_id linking + spending exclusion |
-| Cleared / posted / reconciled transaction states | ❌ Not built | State machine for transaction lifecycle |
-| Reconciliation workflow | ❌ Not built | Compare app balance vs statement balance, surface discrepancies |
-| Balance checkpoints / statement anchors | ❌ Not built | User enters known statement balance to anchor accuracy |
-| Edit history for transaction changes | 🟡 Partial | audit_log tracks category, payee, notes, transfer, manual create/delete. Source field (sync/csv/manual) on all txns. |
-| Data provenance at transaction level | ✅ Done | import_batch_id + raw JSON preserved |
-| Locking behavior for reconciled periods | ❌ Not built | Prevent accidental edits to already-reconciled months |
-| Manual transaction entry | ✅ Done | Full modal: account, date, type, amount, payee, description, category, notes, transfer flag. Delete for manual-only txns. |
+| Running account balances | ✅ | CTE window function per account |
+| Transfer pair linking | ✅ | Auto-detect + `transfer_pair_id` linking both sides |
+| Reconciliation workflow | ✅ | Sessions (create/clear/complete/abandon), statement balance, cleared counts |
+| Reconciliation period locking | ✅ | PATCH/split guards reject edits on reconciled txns, unlock endpoint |
+| Manual transaction entry | ✅ | Full modal: account, date, type, amount, payee, description, category, notes, transfer. Delete for manual-only. |
+| Balance history | ✅ | Daily snapshots (worker), net worth history chart |
+| Edit history / audit | ✅ | audit_log tracks category, payee, notes, transfer, manual create/delete, reconcile, tags |
+| Data provenance | ✅ | import_batch_id + first_import_batch_id + last_seen_batch_id + source field + category_source |
 
----
-
-## Phase 2 — Categorization & Editing Efficiency
-
-**Goal:** Reduce manual cleanup cost while preserving user control.
-
-**Status:** Payee rules and AI categorize are built and working. Missing: advanced rule engine, bulk edit, splits, tags.
-
-### Features
+### Phase 2 — Categorization & Editing ✅ ~90% Complete
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Advanced rules engine (multi-condition, priority ordering) | ❌ Not built | Need amount ranges, date filters, merchant + amount combos |
-| Rule preview / simulation | ❌ Not built | "If I apply this rule, what would change?" |
-| Bulk edit tools | ❌ Not built | Select multiple transactions, batch-apply category/tag |
-| Split transactions | ❌ Not built | Single transaction to multiple category allocations |
-| Tags / labels | ❌ Not built | Orthogonal to categories (vacation, tax-deductible, reimbursable) |
-| Rename / merge merchant tools | ❌ Not built | Consolidate messy payee names across imports |
-| Retroactive rule application | ✅ Done | Already applies rules retroactively on creation |
-| Search, filters, and saved views | 🟡 Partial | Basic filters exist; no saved/bookmarked filter sets |
-| Category confidence indicators | ❌ Not built | Show when AI assigned vs user vs rule |
+| Payee rules engine | ✅ | Pattern match on description + payee, retroactive apply, 176 rules |
+| Advanced rules (multi-condition) | ✅ | Amount min/max, set_transfer action, tag action, priority ordering |
+| Rule preview / simulation | ✅ | "Test a Pattern" card on Rules page, inline preview in create modal with debounce |
+| AI-assisted categorization | ✅ | OpenRouter (Gemini Flash Lite), in-app review/approve |
+| Split transactions | ✅ | One txn → multiple category allocations, ✂ badge, amounts must balance |
+| Tags / labels | ✅ | 6 seeded tags, CRUD, checkbox toggles in edit modal, tag filter on transactions |
+| Split-aware spending | ✅ | `spending_items` VIEW, 8 queries use it (by-category, deltas, flow, trends, budgets) |
+| Category confidence indicators | ✅ | `category_source` field: user/rule/ai/sync. Badges on transactions. |
+| Bulk edit tools | ❌ | Select multiple → batch category/tag |
+| Rename / merge merchants | ❌ | Consolidate messy payee names |
+| Saved filter views | ❌ | Bookmark a filter combo |
 
----
-
-## Phase 3 — Reporting & Planning
-
-**Goal:** Turn trusted financial records into useful decision support.
-
-**Status:** Spending charts, MoM deltas, Sankey, subscription detection, drill-down stats built. Missing: budgets UI, forecasting, net worth history chart, cash flow, goals.
-
-### Features
+### Phase 3 — Reporting & Planning ✅ ~85% Complete
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Budget targets (monthly per category) | 🟡 Schema only | Budget table exists; no progress bars or tracking UI |
-| Net worth over time | 🟡 In Progress | Snapshots collecting; chart appears after 2+ data points |
-| Cash flow reporting | ❌ Not built | Income vs expenses over time with trend |
-| Period-over-period comparisons (YoY, MoM) | 🟡 Partial | MoM deltas exist; no YoY or arbitrary period compare |
-| Forecasting | ❌ Not built | Project future spending based on historical patterns |
-| Goal tracking | ❌ Not built | Savings targets, debt payoff milestones |
-| Scheduled / recurring transactions | ❌ Not built | Known future charges for cash flow projection |
-| Monthly digest / summary email | ❌ Not built | Push summary to email or Telegram |
+| Budget targets + progress | ✅ | Monthly per category, dashboard progress bars, budget vs actual chart |
+| Net worth dashboard | ✅ | NW trend chart (1M/3M/6M/12M/YTD), NW breakdown pie, asset/liability groups |
+| Cash flow reporting | ✅ | Surplus/deficit bar chart, income vs expenses table, savings rate bars |
+| Spending analytics | ✅ | By category, by payee, MoM deltas, trends, Sankey flow diagram |
+| Subscription detection | ✅ | Auto-detect monthly recurring, annual cost estimate |
+| Upcoming bills | ✅ | Account due dates + recurring prediction, urgency coloring, autopay badges |
+| Debt payoff calculator | ✅ | Snowball/avalanche, extra payment modeling, months-saved comparison |
+| Savings goals | ✅ | CRUD, account-linked auto-track, manual contributions, progress bars, dashboard widget |
+| Telegram monthly digest | ✅ | Income/spending/net/savings rate/top categories/budget status/net worth. Worker cron 1st @ 9AM CT. |
+| Investment tracking | ✅ | Holdings table, yfinance price refresh, Vanguard performance CSV, portfolio value chart |
+| Dividend tracking | 🟡 | Monthly aggregates. No per-holding dividend history. |
+| Period-over-period (YoY) | 🟡 | MoM exists. No YoY or arbitrary period. |
+| Forecasting | ❌ | Project future spending from historical patterns |
 
----
-
-## Phase 4 — Convenience & Polish
+### Phase 4 — Convenience & Polish
 
 | Feature | Status | Notes |
 |---------|--------|-------|
+| Mobile-first responsive UI | ✅ | Bottom nav, card layouts, touch-friendly |
+| PWA manifest | ✅ | Installable. No offline caching. |
+| Account detail modal | ✅ | CC: due day, APR, min payment, credit limit, utilization bar, autopay. Loans: rate, term, payment, maturity. |
+| Source badges | ✅ | ✎ manual, ⬆ csv, ⏳ pending, 🔒 reconciled, ✂ split, ↻ recurring, ↔ transfer |
+| finance.cp7.dev tunnel | ✅ | Cloudflare Zero Trust, 302 auth |
+| Cache busters | ✅ | All 23 JS files have ?v= timestamps |
 | Keyboard shortcuts | ❌ | Quick nav, quick categorize |
-| PWA full support | 🟡 Partial | Manifest exists; needs offline caching, push notifications |
-| Attachments (receipts, statements) | ❌ | Upload and link to transactions |
-| Custom category icons / emoji | ❌ | Visual flair |
-| Mobile optimizations | ✅ Done | Mobile-first UI with responsive bottom nav |
-| Notification center | ❌ | Alerts for large charges, sync failures, budget overspend |
-| Multi-user support | 🟡 Schema only | household_id on all tables; no auth/switching yet |
-| Finance Hub via cp7.dev tunnel | ❌ | Access from anywhere via Cloudflare Zero Trust |
-| Debt payoff planner | ❌ | Snowball/avalanche calculator |
+| Attachments (receipts) | ❌ | Upload + link to transactions |
+| Multi-user support | 🟡 | household_id columns exist, no auth |
+| Notification center | ❌ | In-app alerts |
 
 ---
 
@@ -186,74 +108,60 @@ The original plan prioritized by **user-visible features** (manual entry, splits
 ### Data Integrity
 - [x] Imports are idempotent
 - [x] Duplicate handling is explicit and reviewable
-- [ ] Pending and posted transactions are modeled separately
+- [x] Pending and posted transactions modeled
 - [x] Each transaction records its source and import batch
 - [x] Raw imported values can be inspected for debugging
-- [ ] Manual edits do not destroy provenance
+- [x] Manual edits tracked in audit log
 
 ### Ledger Trust
 - [x] Account balances can be recomputed deterministically
 - [x] Transfers can be matched and corrected manually
-- [ ] Reconciliation exists as a real workflow, not just a flag
-- [ ] Reconciled periods can be locked or protected
-- [ ] Statement or checkpoint balances can anchor accuracy
-- [ ] Corrections and adjustments are distinguishable from imported data
+- [x] Reconciliation exists as a real workflow
+- [x] Reconciled periods can be locked
+- [x] Statement balances anchor accuracy
+- [x] Corrections distinguishable from imported data (category_source)
 
 ### Review Workflow
-- [ ] New transactions can be triaged quickly
-- [ ] Problematic transactions surface in a review queue
-- [ ] Low-confidence categorizations are clearly marked
-- [ ] Bulk review actions are supported
-- [ ] Users can filter by account, source, date, import batch, and confidence
+- [x] New transactions can be triaged quickly (Review page)
+- [x] Problematic transactions surface in review queue
+- [x] Low-confidence categorizations clearly marked
+- [x] Bulk review actions supported (mark-all-reviewed)
+- [x] Filter by account, source, date, category, tag
 
 ### Auditability
-- [ ] Transaction edits are logged
+- [x] Transaction edits are logged
 - [x] Import jobs are logged
-- [ ] Rule changes are logged
-- [ ] Users can explain why a transaction looks the way it does
+- [x] Rule changes are logged (retroactive apply count)
+- [x] Users can explain why a transaction looks the way it does
 
 ### Operational Safety
 - [x] Backups are easy and tested (PG backup w/ 7-day rotation)
-- [x] Export is complete enough to leave the product safely (CSV export)
-- [ ] Sync failures are visible (partially — sync_log exists, no push alerts)
-- [x] Secret handling is isolated from app logic (Docker secrets)
+- [x] Export complete enough to leave safely (CSV export)
+- [x] Sync results visible (sync_log, batch history, dashboard)
+- [x] Secret handling isolated (Docker secrets)
+- [x] Monthly digest to Telegram
 
 ---
 
-## Next Actions (Recommended Build Order)
+## Remaining Priorities
 
-1. ~~Import dedup + batch tracking~~ ✅ Done
-2. ~~CSV import with column mapping~~ ✅ Done (Chase, Discover, Citi, Chase Checking presets + custom)
-3. ~~Manual transaction entry~~ ✅ Done (full modal + delete)
-4. ~~Transfer pair linking~~ ✅ Done (transfer_pair_id replaces boolean-only)
-5. ~~Credit card / loan account metadata~~ ✅ Done (due day, APR, min payment, credit limit, loan rate/term/payment)
-5. Split transactions — one txn to multiple category allocations
-6. Advanced rules engine — multi-condition, priority ordering, preview mode
+### High Impact
+1. **Bulk edit tools** — select multiple transactions, batch-apply category/tag/mark-reviewed
+2. **YoY comparison** — period-over-period for any two months/ranges
+3. **Merge/rename merchants** — consolidate messy payee names across imports
 
----
+### Medium Impact
+4. **Per-holding dividend history** — track dividend events per security
+5. **Tax lot tracking** — cost basis lots for gain/loss accuracy
+6. **Benchmark analytics** — compare portfolio to S&P 500 / total market
+7. **Forecasting** — project future spending from historical patterns
 
-## What Moved and Why
-
-### Moved UP (more important than original plan suggested)
-| Feature | Was | Now | Reason |
-|---------|-----|-----|--------|
-| Import dedup / idempotency | Not planned | P0 ✅ | Without this, re-syncs create phantom transactions |
-| Import batch tracking | Not planned | P0 ✅ | Can't debug or rollback bad imports |
-| Raw import preservation | Not planned | P0 ✅ | Lose ability to explain data discrepancies |
-| Reconciliation | Vaguely P2 | P1 | Core trust feature — without it, balances are aspirational |
-| Transfer matching | Not planned | P1 ✅ | Internal transfers double-count in spending without this |
-| Edit history / provenance | Not planned | P1 | Can't explain why a transaction looks the way it does |
-| Balance checkpoints | Not planned | P1 | Statement anchors catch drift before it compounds |
-| CSV import | P2 | P0 | Import-first product needs multi-source from the start |
-
-### Moved DOWN (useful but shouldn't outrank trust systems)
-| Feature | Was | Now | Reason |
-|---------|-----|-----|--------|
-| Keyboard shortcuts | P3 | P4 | Nice UX, zero trust impact |
-| PWA full support | P3 | P4 | Manifest exists; full offline can wait |
-| Category emoji | P3 | P4 | Cosmetic |
-| Debt payoff planner | P2 | P4 | Planning tool that needs trusted data first |
+### Lower Priority
+8. **Keyboard shortcuts** — quick nav, quick categorize
+9. **Receipt attachments** — upload + link to transactions
+10. **Multi-user auth** — household_id wiring + login
+11. **PWA offline** — service worker + offline caching
 
 ---
 
-*This document replaces the original Feature Benchmark & Gap Analysis. Updated to reflect trust-first prioritization, current build state, and P0 completion as of March 17, 2026.*
+*23 tables, 99 endpoints, 14 pages. Finance Hub is a functional personal finance platform.*
