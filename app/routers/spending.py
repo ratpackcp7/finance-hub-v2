@@ -55,13 +55,16 @@ def spending_over_time(months: int = 6, account_id: Optional[str] = None):
     conn = db_conn()
     try:
         cur = conn.cursor()
-        f = ["pending = FALSE", "is_transfer = FALSE"]; p = []
-        if account_id: f.append("account_id = %s"); p.append(account_id)
+        f = ["t.pending = FALSE", "t.is_transfer = FALSE"]; p = []
+        if account_id: f.append("t.account_id = %s"); p.append(account_id)
+        # Income: only count positive txns in income categories (Paycheck, Other Income, Investment)
+        # Spending: only count negative txns NOT in income categories and NOT CC Pay
         cur.execute(
-            f"SELECT TO_CHAR(posted, 'YYYY-MM'), "
-            f"SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), "
-            f"SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) "
-            f"FROM transactions WHERE {' AND '.join(f)} GROUP BY 1 ORDER BY 1 DESC LIMIT %s", p + [months])
+            f"SELECT TO_CHAR(t.posted, 'YYYY-MM'), "
+            f"SUM(CASE WHEN t.amount < 0 AND COALESCE(c.name,'') NOT IN ('Credit Card Pay','Transfer') THEN ABS(t.amount) ELSE 0 END), "
+            f"SUM(CASE WHEN t.amount > 0 AND COALESCE(c.is_income, FALSE) = TRUE THEN t.amount ELSE 0 END) "
+            f"FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
+            f"WHERE {' AND '.join(f)} GROUP BY 1 ORDER BY 1 DESC LIMIT %s", p + [months])
         rows = cur.fetchall()
     finally:
         db_put(conn)

@@ -101,7 +101,7 @@ function renderCashFlow(monthly) {
     var from = m.month + '-01';
     var lastDay = new Date(yr, mo, 0).getDate();
     var to = m.month + '-' + String(lastDay).padStart(2, '0');
-    var drillInc = "drillDown({from:\'" + from + "\',to:\'" + to + "\',type:\'credit\'})";
+    var drillInc = "drillDown({from:\'" + from + "\',to:\'" + to + "\',type:\'income\'})";
     var drillSpend = "drillDown({from:\'" + from + "\',to:\'" + to + "\',type:\'debit\'})";
     html += '<tr><td style="color:#64748b">' + m.month + '</td>'
       + '<td style="text-align:right"><a style="color:#86efac;cursor:pointer;text-decoration:underline" onclick="' + drillInc + '">' + fmt(m.income) + '</a></td>'

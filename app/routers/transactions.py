@@ -50,6 +50,9 @@ def _txn_filters(account_id=None, category_id=None, start_date=None, end_date=No
         filters.append("t.amount < 0")
     elif txn_type == "credit":
         filters.append("t.amount > 0")
+    elif txn_type == "income":
+        filters.append("t.amount > 0")
+        filters.append("c.is_income = TRUE")
     if recurring is not None:
         filters.append("t.recurring = %s"); params.append(recurring)
     return filters, params
@@ -94,7 +97,7 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
                     ORDER BY t.posted DESC, t.id LIMIT %s OFFSET %s""",
                 params + [limit, offset])
         rows = cur.fetchall()
-        cur.execute(f"SELECT COUNT(*), COALESCE(SUM(t.amount), 0) FROM transactions t {where}", params)
+        cur.execute(f"SELECT COUNT(*), COALESCE(SUM(t.amount), 0) FROM transactions t LEFT JOIN categories c ON t.category_id = c.id {where}", params)
         count_row = cur.fetchone()
         total = count_row[0]
         total_amount = float(count_row[1])
