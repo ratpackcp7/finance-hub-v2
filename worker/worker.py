@@ -144,11 +144,17 @@ def main():
     scheduler.add_job(
         scheduled_sync,
         CronTrigger(hour=sync_hour, minute=sync_minute),
-        id="daily_sync",
-        name="Daily SimpleFIN sync + retention purge",
+        id="daily_sync_am",
+        name="Morning SimpleFIN sync + retention purge",
+    )
+    scheduler.add_job(
+        scheduled_sync,
+        CronTrigger(hour=18, minute=0),
+        id="daily_sync_pm",
+        name="Evening SimpleFIN sync",
     )
 
-    logger.info("Scheduler started — daily sync at %02d:%02d CT, retention=%d days",
+    logger.info("Scheduler started — syncs at %02d:%02d and 18:00 CT, retention=%d days",
                 sync_hour, sync_minute, RETENTION_DAYS)
     try:
         scheduler.start()
