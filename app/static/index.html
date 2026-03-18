@@ -337,6 +337,7 @@
   <a data-page="rules" onclick="showPage('rules')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>Payee Rules</a>
   <a data-page="subscriptions" onclick="showPage('subscriptions')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>Subscriptions</a>
   <a data-page="imports" onclick="showPage('imports')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Imports</a>
+  <a data-page="goals" onclick="showPage('goals')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Goals</a>
   <a data-page="bills" onclick="showPage('bills')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/><line x1="9" y1="3" x2="9" y2="9"/></svg>Bills & Debt</a>
   <a data-page="reconcile" onclick="showPage('reconcile')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Reconcile</a>
   <div class="sb-section">Settings</div>
@@ -364,6 +365,7 @@
   </div>
   <div class="card" id="dash-budget-card" style="display:none"><div class="card-title">Budget Progress — This Month</div><div id="dash-budget-bars"></div><div id="dash-budget-total" style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid #1e2530;display:flex;justify-content:space-between;font-size:.82rem"></div></div>
   <div class="card" id="dash-nw-card" style="display:none"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem"><div class="card-title" style="margin:0">Net Worth Trend</div><div style="display:flex;gap:.3rem"><button class="quick-btn" onclick="setNwRange(1,this)">1M</button><button class="quick-btn" onclick="setNwRange(3,this)">3M</button><button class="quick-btn" onclick="setNwRange(6,this)">6M</button><button class="quick-btn active" onclick="setNwRange(12,this)">12M</button><button class="quick-btn" onclick="setNwRange(0,this)">YTD</button></div></div><div class="chart-wrap"><canvas id="chart-nw-trend"></canvas></div></div>
+  <div class="card" id="dash-goals-card" style="display:none"><div class="card-title">Savings Goals</div><div id="dash-goals"></div></div>
   <div class="grid-2">
     <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem"><div class="card-title" style="margin:0" id="donut-title">Spending This Month — by Category</div><div style="display:flex;gap:.3rem"><button class="quick-btn active" onclick="setDonutRange('this-month',this)">This Month</button><button class="quick-btn" onclick="setDonutRange('last-month',this)">Last Month</button><button class="quick-btn" onclick="setDonutRange('3-months',this)">3M</button><button class="quick-btn" onclick="setDonutRange('ytd',this)">YTD</button></div></div><div class="donut-wrap"><canvas id="chart-donut"></canvas></div></div>
     <div class="card"><div class="card-title">Monthly Spending vs Income</div><div class="chart-wrap"><canvas id="chart-bar"></canvas></div></div>
@@ -561,6 +563,17 @@
     </div>
   </div>
 </div>
+<div class="page" id="page-goals">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+    <h2 style="font-size:1.1rem;font-weight:600;color:#f8fafc;margin:0">Savings Goals</h2>
+    <button class="btn btn-primary" onclick="openCreateGoalModal()">+ New Goal</button>
+  </div>
+  <div class="grid-2" style="margin-bottom:1rem">
+    <div class="stat"><div class="stat-label">Active Goals</div><div class="stat-value" id="goals-active-count">—</div></div>
+    <div class="stat"><div class="stat-label">Total Target</div><div class="stat-value" id="goals-total-target">—</div></div>
+  </div>
+  <div id="goals-list"><p class="empty">Loading...</p></div>
+</div>
 <div class="page" id="page-bills">
   <h2 style="font-size:1.1rem;font-weight:600;color:#f8fafc;margin:0 0 1rem">Bills & Debt</h2>
   <div class="grid-2" style="margin-bottom:1rem">
@@ -723,6 +736,46 @@
     <div id="hist-table" style="max-height:500px;overflow-y:auto"></div>
   </div>
 </div>
+<div class="modal-bg" id="modal-goal" onclick="if(event.target===this)closeModal(this.id)">
+  <div class="modal">
+    <div class="modal-header"><h3 id="mg-title">Create Goal</h3><button class="modal-close" onclick="closeModal('modal-goal')">&times;</button></div>
+    <input type="hidden" id="mg-id" value="">
+    <div class="field"><label>Name *</label><input type="text" id="mg-name" placeholder="e.g. Emergency Fund, Vacation, New Car"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
+      <div class="field"><label>Target Amount *</label><input type="number" id="mg-target" step="0.01" min="1" placeholder="10000"></div>
+      <div class="field"><label>Type</label><select id="mg-type">
+        <option value="emergency_fund">Emergency Fund</option>
+        <option value="savings">Savings</option>
+        <option value="purchase">Purchase</option>
+        <option value="debt_payoff">Debt Payoff</option>
+        <option value="custom">Custom</option>
+      </select></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
+      <div class="field"><label>Target Date</label><input type="date" id="mg-date"></div>
+      <div class="field"><label>Monthly Contribution</label><input type="number" id="mg-monthly" step="0.01" placeholder="500"></div>
+    </div>
+    <div class="field"><label>Linked Account (auto-tracks balance)</label><select id="mg-account"><option value="">Manual tracking</option></select></div>
+    <div style="display:grid;grid-template-columns:1fr auto;gap:.6rem">
+      <div class="field"><label>Notes</label><input type="text" id="mg-notes" placeholder="Optional"></div>
+      <div class="field"><label>Color</label><input type="color" id="mg-color" value="#3b82f6" style="width:50px;height:36px;padding:2px;cursor:pointer"></div>
+    </div>
+    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('modal-goal')">Cancel</button><button class="btn btn-primary" onclick="saveGoal()">Save</button></div>
+  </div>
+</div>
+<div class="modal-bg" id="modal-contribute" onclick="if(event.target===this)closeModal(this.id)">
+  <div class="modal" style="width:min(380px,90vw)">
+    <div class="modal-header"><h3>Add to Goal</h3><button class="modal-close" onclick="closeModal('modal-contribute')">&times;</button></div>
+    <input type="hidden" id="mc-goal-id">
+    <div style="font-size:.9rem;font-weight:600;color:#e2e8f0;margin-bottom:.75rem" id="mc-goal-name"></div>
+    <div style="display:flex;justify-content:space-between;font-size:.82rem;margin-bottom:.75rem">
+      <span>Current: <span id="mc-current" style="color:#86efac"></span></span>
+      <span>Remaining: <span id="mc-remaining" style="color:#fbbf24"></span></span>
+    </div>
+    <div class="field"><label>Amount to Add</label><input type="number" id="mc-amount" step="0.01" min="0.01" placeholder="0.00"></div>
+    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('modal-contribute')">Cancel</button><button class="btn btn-success" onclick="saveContribution()">Add Funds</button></div>
+  </div>
+</div>
 <!-- Split Transaction Modal -->
 <div class="modal-bg" id="modal-splits" onclick="if(event.target===this)closeModal(this.id)">
   <div class="modal" style="width:min(650px,95vw)">
@@ -851,22 +904,22 @@
     </div>
   </div>
 </div>
-<script src="/static/js/core.js?v=1773873360"></script>
-<script src="/static/js/sync.js?v=1773873360"></script>
-<script src="/static/js/dashboard.js?v=1773873360"></script>
-<script src="/static/js/history.js?v=1773873360"></script>
-<script src="/static/js/insights.js?v=1773873360"></script>
-<script src="/static/js/sankey.js?v=1773873360"></script>
-<script src="/static/js/spending.js?v=1773873360"></script>
-<script src="/static/js/transactions.js?v=1773873360"></script>
-<script src="/static/js/transfers.js?v=1773873360"></script>
-<script src="/static/js/ai_categorize.js?v=1773873360"></script>
-<script src="/static/js/rules.js?v=1773873360"></script>
-<script src="/static/js/settings.js?v=1773873360"></script>
-<script src="/static/js/subscriptions.js?v=1773873360"></script>
-<script src="/static/js/imports.js?v=1773873360"></script>
-<script src="/static/js/reconcile.js?v=1773873360"></script>
-<script src="/static/js/feedback.js?v=1773873360"></script>
+<script src="/static/js/core.js?v=1773873721"></script>
+<script src="/static/js/sync.js?v=1773873721"></script>
+<script src="/static/js/dashboard.js?v=1773873721"></script>
+<script src="/static/js/history.js?v=1773873721"></script>
+<script src="/static/js/insights.js?v=1773873721"></script>
+<script src="/static/js/sankey.js?v=1773873721"></script>
+<script src="/static/js/spending.js?v=1773873721"></script>
+<script src="/static/js/transactions.js?v=1773873721"></script>
+<script src="/static/js/transfers.js?v=1773873721"></script>
+<script src="/static/js/ai_categorize.js?v=1773873721"></script>
+<script src="/static/js/rules.js?v=1773873721"></script>
+<script src="/static/js/settings.js?v=1773873721"></script>
+<script src="/static/js/subscriptions.js?v=1773873721"></script>
+<script src="/static/js/imports.js?v=1773873721"></script>
+<script src="/static/js/reconcile.js?v=1773873721"></script>
+<script src="/static/js/feedback.js?v=1773873721"></script>
 
 <!-- Feedback FAB -->
 <!-- Account Detail Modal -->
@@ -1068,10 +1121,11 @@
   </div>
 </div>
 
-<script src="/static/js/manual_entry.js?v=1773873360"></script>
-<script src="/static/js/account_detail.js?v=1773873360"></script>
-<script src="/static/js/splits.js?v=1773873360"></script>
-<script src="/static/js/tags.js?v=1773873360"></script>
-<script src="/static/js/bills.js?v=1773873360"></script>
+<script src="/static/js/manual_entry.js?v=1773873721"></script>
+<script src="/static/js/account_detail.js?v=1773873721"></script>
+<script src="/static/js/splits.js?v=1773873721"></script>
+<script src="/static/js/tags.js?v=1773873721"></script>
+<script src="/static/js/bills.js?v=1773873721"></script>
+<script src="/static/js/goals.js"></script>
 </body>
 </html>

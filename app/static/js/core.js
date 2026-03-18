@@ -32,7 +32,7 @@ function customConfirm(msg,onOk,okLabel,okClass){
 document.querySelectorAll('nav:first-of-type a[data-page]').forEach(a=>{a.addEventListener('click',()=>showPage(a.dataset.page));});
 
 // Pages reachable from the "More" menu (not in bottom nav)
-const MORE_PAGES = new Set(['rules','subscriptions','imports','reconcile','bills','flow','insights','history']);
+const MORE_PAGES = new Set(['rules','subscriptions','imports','reconcile','goals','bills','flow','insights','history']);
 
 function showPage(name){
   // Close More overlay if open
@@ -55,7 +55,7 @@ function showPage(name){
   if(moreTab)moreTab.classList.toggle('active',MORE_PAGES.has(name));
 
   // Page loaders
-  if(name==='dashboard'){loadDashboard();loadSankey();}
+  if(name==='dashboard'){loadDashboard();loadSankey();if(typeof loadGoalsDashboard==='function')loadGoalsDashboard();}
   if(name==='spending')loadSpending();
   if(name==='transactions'){loadCategories();loadAccounts();loadTxns();}
   if(name==='rules'){loadRules();loadCategories();}
@@ -64,6 +64,7 @@ function showPage(name){
   if(name==='imports'){loadImportsPage();loadCsvAccounts();}
   if(name==='reconcile'){loadReconAccounts();loadReconHistory();}
   if(name==='bills')loadBillsPage();
+  if(name==='goals')loadGoalsPage();
   if(name==='flow')loadFlowPage();
   if(name==='insights')loadInsights();
   if(name==='history')loadHistory();
