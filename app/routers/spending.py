@@ -16,7 +16,8 @@ def spending_by_category(start_date: Optional[date] = None, end_date: Optional[d
     conn = db_conn()
     try:
         cur = conn.cursor()
-        f = ["t.amount < 0", "t.pending = FALSE", "t.is_transfer = FALSE"]; p = []
+        f = ["t.amount < 0", "t.pending = FALSE", "t.is_transfer = FALSE",
+             "COALESCE(c.name, '') NOT IN ('Credit Card Pay', 'Transfer')"]; p = []
         if start_date: f.append("t.posted >= %s"); p.append(start_date)
         if end_date: f.append("t.posted <= %s"); p.append(end_date)
         if account_id: f.append("t.account_id = %s"); p.append(account_id)
@@ -133,6 +134,7 @@ def spending_flow(start_date: Optional[date] = None, end_date: Optional[date] = 
             "SELECT COALESCE(c.name, 'Other Income'), c.color, SUM(t.amount) "
             "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
             "WHERE t.amount > 0 AND t.pending = FALSE AND t.is_transfer = FALSE "
+            "AND COALESCE(c.is_income, FALSE) = TRUE "
             "AND t.posted >= %s AND t.posted <= %s GROUP BY c.name, c.color ORDER BY 3 DESC",
             (start_date, end_date))
         income = [{"name": r[0], "color": r[1] or "#4ade80", "amount": float(r[2])} for r in cur.fetchall()]
@@ -140,6 +142,7 @@ def spending_flow(start_date: Optional[date] = None, end_date: Optional[date] = 
             "SELECT COALESCE(c.name, 'Uncategorized'), c.color, SUM(ABS(t.amount)) "
             "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
             "WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE "
+            "AND COALESCE(c.name, '') NOT IN ('Credit Card Pay', 'Transfer') "
             "AND t.posted >= %s AND t.posted <= %s GROUP BY c.name, c.color ORDER BY 3 DESC",
             (start_date, end_date))
         spending = [{"name": r[0], "color": r[1] or "#475569", "amount": float(r[2])} for r in cur.fetchall()]
