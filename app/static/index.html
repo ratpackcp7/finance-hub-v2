@@ -359,9 +359,9 @@
     <div class="stat" style="cursor:pointer" onclick="showPage('settings')"><div class="stat-label">Net Worth</div><div class="stat-value" id="ds-networth">—</div><div class="stat-sub" id="ds-acct-count" style="color:#3b82f6">tap for accounts →</div></div>
   </div>
   <div class="card" id="dash-budget-card" style="display:none"><div class="card-title">Budget Progress — This Month</div><div id="dash-budget-bars"></div><div id="dash-budget-total" style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid #1e2530;display:flex;justify-content:space-between;font-size:.82rem"></div></div>
-  <div class="card" id="dash-nw-card" style="display:none"><div class="card-title">Net Worth Trend</div><div class="chart-wrap"><canvas id="chart-nw-trend"></canvas></div></div>
+  <div class="card" id="dash-nw-card" style="display:none"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem"><div class="card-title" style="margin:0">Net Worth Trend</div><div style="display:flex;gap:.3rem"><button class="quick-btn" onclick="setNwRange(1,this)">1M</button><button class="quick-btn" onclick="setNwRange(3,this)">3M</button><button class="quick-btn" onclick="setNwRange(6,this)">6M</button><button class="quick-btn active" onclick="setNwRange(12,this)">12M</button><button class="quick-btn" onclick="setNwRange(0,this)">YTD</button></div></div><div class="chart-wrap"><canvas id="chart-nw-trend"></canvas></div></div>
   <div class="grid-2">
-    <div class="card"><div class="card-title">Spending This Month — by Category</div><div class="donut-wrap"><canvas id="chart-donut"></canvas></div></div>
+    <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem"><div class="card-title" style="margin:0" id="donut-title">Spending This Month — by Category</div><div style="display:flex;gap:.3rem"><button class="quick-btn active" onclick="setDonutRange('this-month',this)">This Month</button><button class="quick-btn" onclick="setDonutRange('last-month',this)">Last Month</button><button class="quick-btn" onclick="setDonutRange('3-months',this)">3M</button><button class="quick-btn" onclick="setDonutRange('ytd',this)">YTD</button></div></div><div class="donut-wrap"><canvas id="chart-donut"></canvas></div></div>
     <div class="card"><div class="card-title">Monthly Spending vs Income</div><div class="chart-wrap"><canvas id="chart-bar"></canvas></div></div>
   </div>
   <div class="card" id="dash-sankey-card" style="display:none"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem"><div class="card-title" style="margin:0" id="sankey-title">Money Flow — This Month</div><div class="date-range-row" style="margin:0;gap:.35rem"><button class="quick-btn active" onclick="setSankeyRange('this-month',this)">This Month</button><button class="quick-btn" onclick="setSankeyRange('last-month',this)">Last Month</button><button class="quick-btn" onclick="setSankeyRange('3-months',this)">3 Months</button><button class="quick-btn" onclick="setSankeyRange('ytd',this)">YTD</button></div></div><div id="sankey-wrap" style="width:100%;overflow-x:auto"></div></div>
@@ -548,20 +548,20 @@
     </div>
   </div>
 </div>
-<script src="/static/js/core.js?v=1773843224"></script>
-<script src="/static/js/sync.js?v=1773843224"></script>
-<script src="/static/js/dashboard.js?v=1773843224"></script>
-<script src="/static/js/sankey.js?v=1773843224"></script>
-<script src="/static/js/spending.js?v=1773843224"></script>
-<script src="/static/js/transactions.js?v=1773843224"></script>
-<script src="/static/js/transfers.js?v=1773843224"></script>
-<script src="/static/js/ai_categorize.js?v=1773843224"></script>
-<script src="/static/js/rules.js?v=1773843224"></script>
-<script src="/static/js/settings.js?v=1773843224"></script>
-<script src="/static/js/subscriptions.js?v=1773843224"></script>
-<script src="/static/js/imports.js?v=1773843224"></script>
-<script src="/static/js/reconcile.js?v=1773843224"></script>
-<script src="/static/js/feedback.js?v=1773843224"></script>
+<script src="/static/js/core.js?v=1773843633"></script>
+<script src="/static/js/sync.js?v=1773843633"></script>
+<script src="/static/js/dashboard.js?v=1773843633"></script>
+<script src="/static/js/sankey.js?v=1773843633"></script>
+<script src="/static/js/spending.js?v=1773843633"></script>
+<script src="/static/js/transactions.js?v=1773843633"></script>
+<script src="/static/js/transfers.js?v=1773843633"></script>
+<script src="/static/js/ai_categorize.js?v=1773843633"></script>
+<script src="/static/js/rules.js?v=1773843633"></script>
+<script src="/static/js/settings.js?v=1773843633"></script>
+<script src="/static/js/subscriptions.js?v=1773843633"></script>
+<script src="/static/js/imports.js?v=1773843633"></script>
+<script src="/static/js/reconcile.js?v=1773843633"></script>
+<script src="/static/js/feedback.js?v=1773843633"></script>
 
 <!-- Feedback FAB -->
 <button class="feedback-fab" onclick="openFeedbackModal()" title="Bug report or feature request">✏️</button>
