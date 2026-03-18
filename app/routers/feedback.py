@@ -2,7 +2,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from db import _audit, db_conn, db_put
+from db import MAX_TEXT_LEN, _audit, db_conn, db_put
 
 router = APIRouter(prefix="/api/feedback", tags=["feedback"])
 
@@ -16,6 +16,8 @@ class FeedbackCreate(BaseModel):
 def create_feedback(body: FeedbackCreate):
     if not body.message.strip():
         raise HTTPException(status_code=400, detail="Message required")
+    if len(body.message) > MAX_TEXT_LEN:
+        raise HTTPException(status_code=400, detail=f"Message exceeds max length ({MAX_TEXT_LEN})")
     valid = {"bug", "feature", "feedback"}
     fb_type = body.type if body.type in valid else "feedback"
     conn = db_conn()

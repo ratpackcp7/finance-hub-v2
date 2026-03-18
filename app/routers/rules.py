@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from db import _audit, db_conn, db_put
+from db import _audit, db_conn, db_put, require_nonempty, require_valid_category
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["rules"])
@@ -39,7 +39,9 @@ def create_payee_rule(body: PayeeRuleCreate):
     conn = db_conn()
     try:
         cur = conn.cursor()
-        pattern = body.match_pattern.lower().strip()
+        pattern = require_nonempty(body.match_pattern, "match_pattern").lower()
+        if body.category_id is not None:
+            require_valid_category(cur, body.category_id)
         cur.execute("SELECT id FROM payee_rules WHERE match_pattern = %s AND deleted_at IS NULL", (pattern,))
         existing = cur.fetchone()
         if existing:

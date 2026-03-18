@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from db import _audit, db_conn, db_put
+from db import _audit, db_conn, db_put, require_valid_category
 
 router = APIRouter(prefix="/api/budgets", tags=["budgets"])
 
@@ -33,9 +33,12 @@ class BudgetCreate(BaseModel):
 
 @router.post("", status_code=201)
 def create_or_update_budget(body: BudgetCreate):
+    if body.monthly_amount <= 0:
+        raise HTTPException(status_code=400, detail="monthly_amount must be positive")
     conn = db_conn()
     try:
         cur = conn.cursor()
+        require_valid_category(cur, body.category_id)
         cur.execute(
             "INSERT INTO budgets (category_id, monthly_amount) VALUES (%s, %s) "
             "ON CONFLICT (category_id) DO UPDATE SET monthly_amount = EXCLUDED.monthly_amount, deleted_at = NULL "

@@ -3,11 +3,13 @@ Finance Hub v2 — Database pool + shared utilities
 """
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
 import psycopg2
 import psycopg2.pool
+from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +17,10 @@ ACCOUNT_TYPES = {
     "checking", "savings", "credit", "investment", "retirement",
     "529", "utma", "hsa", "brokerage", "loan", "mortgage", "other",
 }
+
+MAX_TEXT_LEN = 2000  # general text field cap
+MAX_NAME_LEN = 200   # names, patterns
+COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 _pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
 
@@ -78,3 +84,31 @@ def _audit(cur, entity_type: str, entity_id, action: str, source: str = "user",
          str(old_value) if old_value is not None else None,
          str(new_value) if new_value is not None else None,
          source))
+
+
+# ── Validation helpers ──
+
+def require_valid_category(cur, category_id: int) -> str:
+    """Verify category_id exists and isn't deleted. Returns category name. Raises 400 if invalid."""
+    cur.execute("SELECT name FROM categories WHERE id = %s AND deleted_at IS NULL", (category_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=400, detail=f"Invalid category_id: {category_id}")
+    return row[0]
+
+
+def require_nonempty(value: str, field: str, max_len: int = MAX_NAME_LEN) -> str:
+    """Strip and validate a non-empty string field. Returns stripped value."""
+    v = (value or "").strip()
+    if not v:
+        raise HTTPException(status_code=400, detail=f"{field} is required")
+    if len(v) > max_len:
+        raise HTTPException(status_code=400, detail=f"{field} exceeds max length ({max_len})")
+    return v
+
+
+def validate_color(color: str) -> str:
+    """Validate hex color format. Returns color."""
+    if not COLOR_RE.match(color):
+        raise HTTPException(status_code=400, detail=f"Invalid color format: {color} (expected #RRGGBB)")
+    return color

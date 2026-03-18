@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from db import _audit, _csv_safe, db_conn, db_put
+from db import MAX_TEXT_LEN, _audit, _csv_safe, db_conn, db_put, require_valid_category
 
 router = APIRouter(prefix="/api", tags=["transactions"])
 
@@ -135,14 +135,19 @@ def patch_transaction(txn_id: str, body: TxnPatch):
         old_cat, old_payee, old_notes = old
         updates, params = [], []
         if body.category_id is not None:
+            require_valid_category(cur, body.category_id)
             updates += ["category_id = %s", "category_manual = TRUE"]; params.append(body.category_id)
             _audit(cur, "transaction", txn_id, "update", field_name="category_id",
                    old_value=old_cat, new_value=body.category_id)
         if body.payee is not None:
+            if len(body.payee) > MAX_TEXT_LEN:
+                raise HTTPException(status_code=400, detail=f"payee exceeds max length ({MAX_TEXT_LEN})")
             updates.append("payee = %s"); params.append(body.payee)
             _audit(cur, "transaction", txn_id, "update", field_name="payee",
                    old_value=old_payee, new_value=body.payee)
         if body.notes is not None:
+            if len(body.notes) > MAX_TEXT_LEN:
+                raise HTTPException(status_code=400, detail=f"notes exceeds max length ({MAX_TEXT_LEN})")
             updates.append("notes = %s"); params.append(body.notes)
             _audit(cur, "transaction", txn_id, "update", field_name="notes",
                    old_value=old_notes, new_value=body.notes)

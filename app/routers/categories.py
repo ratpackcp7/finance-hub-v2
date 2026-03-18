@@ -1,10 +1,10 @@
-"""Categories router — CRUD with soft deletes."""
+"""Categories router — CRUD with soft deletes + validation."""
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from db import _audit, db_conn, db_put
+from db import _audit, db_conn, db_put, require_nonempty, validate_color
 
 router = APIRouter(prefix="/api", tags=["categories"])
 
@@ -33,17 +33,23 @@ class CategoryCreate(BaseModel):
 
 @router.post("/categories", status_code=201)
 def create_category(body: CategoryCreate):
+    name = require_nonempty(body.name, "name")
+    validate_color(body.color)
     conn = db_conn()
     try:
         cur = conn.cursor()
+        # Check for duplicate name
+        cur.execute("SELECT id FROM categories WHERE lower(name) = lower(%s) AND deleted_at IS NULL", (name,))
+        if cur.fetchone():
+            raise HTTPException(status_code=400, detail=f"Category '{name}' already exists")
         cur.execute(
             "INSERT INTO categories (name, color, group_name, is_income) VALUES (%s, %s, %s, %s) RETURNING id",
-            (body.name, body.color, body.group_name, body.is_income))
+            (name, body.color, body.group_name, body.is_income))
         new_id = cur.fetchone()[0]
         conn.commit()
     finally:
         db_put(conn)
-    return {"id": new_id, "name": body.name}
+    return {"id": new_id, "name": name}
 
 
 @router.delete("/categories/{cat_id}")
@@ -74,9 +80,7 @@ class CategoryRename(BaseModel):
 
 @router.patch("/categories/{cat_id}")
 def rename_category(cat_id: int, body: CategoryRename):
-    name = body.name.strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="Name required")
+    name = require_nonempty(body.name, "name")
     conn = db_conn()
     try:
         cur = conn.cursor()
@@ -86,6 +90,11 @@ def rename_category(cat_id: int, body: CategoryRename):
             raise HTTPException(status_code=404, detail="Category not found")
         if row[0] == "Uncategorized":
             raise HTTPException(status_code=400, detail="Cannot rename Uncategorized")
+        # Check for duplicate name (excluding self)
+        cur.execute("SELECT id FROM categories WHERE lower(name) = lower(%s) AND id != %s AND deleted_at IS NULL",
+                    (name, cat_id))
+        if cur.fetchone():
+            raise HTTPException(status_code=400, detail=f"Category '{name}' already exists")
         cur.execute("UPDATE categories SET name = %s WHERE id = %s", (name, cat_id))
         _audit(cur, "category", cat_id, "rename", field_name="name", old_value=row[0], new_value=name)
         conn.commit()
