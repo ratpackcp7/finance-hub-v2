@@ -526,6 +526,21 @@
   </div>
 </div>
 <div class="page" id="page-insights">
+  <!-- Budget vs Actual -->
+  <div class="card" style="margin-bottom:1rem">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem">
+      <div class="card-title" style="margin:0">Budget vs Actual</div>
+      <div style="display:flex;gap:.3rem;align-items:center">
+        <button class="quick-btn" onclick="shiftBvaMonth(-1)">&#9664;</button>
+        <span id="bva-month-label" style="font-size:.8rem;color:#94a3b8;min-width:5rem;text-align:center"></span>
+        <button class="quick-btn" onclick="shiftBvaMonth(1)">&#9654;</button>
+      </div>
+    </div>
+    <div id="bva-pacing" style="font-size:.72rem;color:#64748b;margin-bottom:.75rem"></div>
+    <div style="height:400px"><canvas id="chart-bva"></canvas></div>
+    <div id="bva-table" style="margin-top:.75rem"></div>
+  </div>
+
   <h2 style="font-size:1.1rem;font-weight:600;color:#f8fafc;margin:0 0 1rem">Financial Insights</h2>
 
   <!-- Row 1: Savings Rate + Monthly Cash Flow -->
@@ -696,22 +711,22 @@
     </div>
   </div>
 </div>
-<script src="/static/js/core.js?v=1773853237"></script>
-<script src="/static/js/sync.js?v=1773853237"></script>
-<script src="/static/js/dashboard.js?v=1773853237"></script>
-<script src="/static/js/history.js?v=1773853237"></script>
-<script src="/static/js/insights.js?v=1773853237"></script>
-<script src="/static/js/sankey.js?v=1773853237"></script>
-<script src="/static/js/spending.js?v=1773853237"></script>
-<script src="/static/js/transactions.js?v=1773853237"></script>
-<script src="/static/js/transfers.js?v=1773853237"></script>
-<script src="/static/js/ai_categorize.js?v=1773853237"></script>
-<script src="/static/js/rules.js?v=1773853237"></script>
-<script src="/static/js/settings.js?v=1773853237"></script>
-<script src="/static/js/subscriptions.js?v=1773853237"></script>
-<script src="/static/js/imports.js?v=1773853237"></script>
-<script src="/static/js/reconcile.js?v=1773853237"></script>
-<script src="/static/js/feedback.js?v=1773853237"></script>
+<script src="/static/js/core.js?v=1773857470"></script>
+<script src="/static/js/sync.js?v=1773857470"></script>
+<script src="/static/js/dashboard.js?v=1773857470"></script>
+<script src="/static/js/history.js?v=1773857470"></script>
+<script src="/static/js/insights.js?v=1773857470"></script>
+<script src="/static/js/sankey.js?v=1773857470"></script>
+<script src="/static/js/spending.js?v=1773857470"></script>
+<script src="/static/js/transactions.js?v=1773857470"></script>
+<script src="/static/js/transfers.js?v=1773857470"></script>
+<script src="/static/js/ai_categorize.js?v=1773857470"></script>
+<script src="/static/js/rules.js?v=1773857470"></script>
+<script src="/static/js/settings.js?v=1773857470"></script>
+<script src="/static/js/subscriptions.js?v=1773857470"></script>
+<script src="/static/js/imports.js?v=1773857470"></script>
+<script src="/static/js/reconcile.js?v=1773857470"></script>
+<script src="/static/js/feedback.js?v=1773857470"></script>
 
 <!-- Feedback FAB -->
 <button class="feedback-fab" onclick="openFeedbackModal()" title="Bug report or feature request">✏️</button>

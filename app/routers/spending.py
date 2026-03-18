@@ -191,3 +191,128 @@ def detect_subscriptions(min_months: int = 3, amount_tolerance_pct: float = 15):
     subs.sort(key=lambda s: s["annual_cost"], reverse=True)
     ta = sum(s["annual_cost"] for s in subs)
     return {"subscriptions": subs, "totals": {"annual": round(ta, 2), "monthly": round(ta / 12, 2)}}
+
+
+@router.get("/budget-progress")
+def budget_progress(month: Optional[str] = None):
+    """Budget vs actual spending for a given month."""
+    if not month:
+        today = date.today()
+        month = f"{today.year}-{today.month:02d}"
+    parts = month.split("-")
+    yr, mo = int(parts[0]), int(parts[1])
+    start_date = date(yr, mo, 1)
+    end_date = date(yr + (1 if mo == 12 else 0), (1 if mo == 12 else mo + 1), 1)
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT b.id, b.category_id, c.name, c.color, b.monthly_amount "
+            "FROM budgets b JOIN categories c ON b.category_id = c.id "
+            "ORDER BY b.monthly_amount DESC")
+        budgets = cur.fetchall()
+        cur.execute(
+            "SELECT t.category_id, SUM(ABS(t.amount)) "
+            "FROM transactions t "
+            "WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE "
+            "AND t.posted >= %s AND t.posted < %s "
+            "GROUP BY t.category_id", (start_date, end_date))
+        actuals = {r[0]: float(r[1]) for r in cur.fetchall()}
+    finally:
+        db_put(conn)
+    import calendar
+    days_in_month = calendar.monthrange(yr, mo)[1]
+    today = date.today()
+    day_of_month = today.day if (today.year == yr and today.month == mo) else days_in_month
+    pct_through = day_of_month / days_in_month
+    results, total_budget, total_actual, over_count = [], 0, 0, 0
+    for b in budgets:
+        cat_id, cat_name, color, budget_amt = b[1], b[2], b[3], float(b[4])
+        actual = actuals.get(cat_id, 0)
+        pct_used = (actual / budget_amt * 100) if budget_amt > 0 else 0
+        total_budget += budget_amt; total_actual += actual
+        if actual > budget_amt: over_count += 1
+        results.append({"category": cat_name, "category_id": cat_id, "color": color or "#475569",
+            "budget": budget_amt, "actual": actual, "remaining": budget_amt - actual,
+            "pct_used": round(pct_used, 1), "over": actual > budget_amt})
+    return {"month": month, "day_of_month": day_of_month, "days_in_month": days_in_month,
+        "pct_through": round(pct_through * 100, 1), "categories": results,
+        "summary": {"total_budget": total_budget, "total_actual": total_actual,
+            "total_remaining": total_budget - total_actual,
+            "over_count": over_count, "on_track": len(results) - over_count}}
+
+
+@router.get("/budget-vs-actual")
+def budget_vs_actual(month: Optional[str] = None):
+    """Budget vs actual spending for a given month (YYYY-MM). Defaults to current month."""
+    if month:
+        yr, mo = int(month[:4]), int(month[5:7])
+    else:
+        today = date.today()
+        yr, mo = today.year, today.month
+
+    import calendar as cal
+    last_day = cal.monthrange(yr, mo)[1]
+    start = date(yr, mo, 1)
+    end = date(yr, mo, last_day)
+
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        # Get all budgets
+        cur.execute(
+            "SELECT b.id, b.category_id, c.name, c.color, b.monthly_amount "
+            "FROM budgets b JOIN categories c ON b.category_id = c.id "
+            "ORDER BY b.monthly_amount DESC")
+        budgets = cur.fetchall()
+
+        # Get actual spending per category for the month
+        cur.execute(
+            "SELECT t.category_id, SUM(ABS(t.amount)) "
+            "FROM transactions t "
+            "WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE "
+            "AND t.posted >= %s AND t.posted <= %s "
+            "GROUP BY t.category_id", (start, end))
+        actuals = dict(cur.fetchall())
+    finally:
+        db_put(conn)
+
+    results = []
+    total_budget = 0
+    total_actual = 0
+    for b in budgets:
+        budget_id, cat_id, cat_name, color, budget_amt = b
+        actual = float(actuals.get(cat_id, 0))
+        pct = (actual / float(budget_amt) * 100) if budget_amt else 0
+        results.append({
+            "category": cat_name,
+            "category_id": cat_id,
+            "color": color or "#475569",
+            "budget": float(budget_amt),
+            "actual": actual,
+            "remaining": float(budget_amt) - actual,
+            "pct": round(pct, 1),
+        })
+        total_budget += float(budget_amt)
+        total_actual += actual
+
+    # Also compute how many days into the month / expected pacing
+    today = date.today()
+    if yr == today.year and mo == today.month:
+        days_in = today.day
+        days_total = last_day
+        pacing_pct = round(days_in / days_total * 100, 1)
+    else:
+        days_in = last_day
+        days_total = last_day
+        pacing_pct = 100.0
+
+    return {
+        "month": f"{yr}-{mo:02d}",
+        "items": results,
+        "total_budget": total_budget,
+        "total_actual": total_actual,
+        "pacing_pct": pacing_pct,
+        "days_in": days_in,
+        "days_total": days_total,
+    }

@@ -18,6 +18,7 @@ var TYPE_LABELS = {
 };
 
 async function loadInsights() {
+  loadBva();
   try {
     var results = await Promise.all([
       api('/api/net-worth/breakdown'),
@@ -510,4 +511,143 @@ function renderActivity(data) {
     html += '</div>';
   }
   el.innerHTML = html;
+}
+
+
+// ═══════════════════════════════════════
+// Budget vs Actual
+// ═══════════════════════════════════════
+var _bvaChart = null;
+var _bvaYear = new Date().getFullYear();
+var _bvaMonth = new Date().getMonth() + 1;
+
+function shiftBvaMonth(delta) {
+  _bvaMonth += delta;
+  if (_bvaMonth > 12) { _bvaMonth = 1; _bvaYear++; }
+  if (_bvaMonth < 1) { _bvaMonth = 12; _bvaYear--; }
+  loadBva();
+}
+
+async function loadBva() {
+  var m = _bvaYear + '-' + String(_bvaMonth).padStart(2, '0');
+  $('bva-month-label').textContent = m;
+  try {
+    var data = await api('/api/spending/budget-vs-actual?month=' + m);
+    renderBvaChart(data);
+    renderBvaTable(data);
+    // Pacing indicator
+    if (data.pacing_pct < 100) {
+      $('bva-pacing').innerHTML = 'Day ' + data.days_in + ' of ' + data.days_total
+        + ' (' + data.pacing_pct + '% through month). '
+        + '<span style="color:#f8fafc">Expected spend: ' + fmt(data.total_budget * data.pacing_pct / 100)
+        + '</span> — <span style="color:' + (data.total_actual <= data.total_budget * data.pacing_pct / 100 ? '#86efac' : '#fca5a5')
+        + '">Actual: ' + fmt(data.total_actual) + '</span>';
+    } else {
+      var over = data.total_actual > data.total_budget;
+      $('bva-pacing').innerHTML = 'Total budget: ' + fmt(data.total_budget)
+        + ' — Actual: <span style="color:' + (over ? '#fca5a5' : '#86efac') + '">' + fmt(data.total_actual) + '</span>'
+        + (over ? ' (over by ' + fmt(data.total_actual - data.total_budget) + ')' : ' (under by ' + fmt(data.total_budget - data.total_actual) + ')');
+    }
+  } catch (e) {
+    console.error('BVA error:', e);
+  }
+}
+
+function renderBvaChart(data) {
+  var items = data.items;
+  var labels = items.map(function(i) { return i.category; });
+  var budgets = items.map(function(i) { return i.budget; });
+  var actuals = items.map(function(i) { return i.actual; });
+  var barColors = items.map(function(i) {
+    return i.pct > 100 ? '#ef4444cc' : i.pct > 80 ? '#f59e0bcc' : '#22c55ecc';
+  });
+
+  var ctx = $('chart-bva').getContext('2d');
+  if (_bvaChart) _bvaChart.destroy();
+  _bvaChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: 'Budget',
+          data: budgets,
+          backgroundColor: '#334155',
+          borderColor: '#475569',
+          borderWidth: 1,
+          borderRadius: 3,
+          barPercentage: 0.9,
+          categoryPercentage: 0.8,
+        },
+        {
+          label: 'Actual',
+          data: actuals,
+          backgroundColor: barColors,
+          borderColor: barColors.map(function(c) { return c.replace('cc', ''); }),
+          borderWidth: 1,
+          borderRadius: 3,
+          barPercentage: 0.9,
+          categoryPercentage: 0.8,
+        }
+      ]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#94a3b8', font: { size: 10 } } },
+        tooltip: {
+          callbacks: {
+            afterLabel: function(ctx) {
+              if (ctx.datasetIndex === 1) {
+                var i = data.items[ctx.dataIndex];
+                return i.pct + '% of budget (' + fmt(i.remaining) + ' remaining)';
+              }
+              return '';
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: '#1e2530' },
+          ticks: { color: '#64748b', font: { size: 9 }, callback: function(v) { return '$' + (v >= 1000 ? (v/1000).toFixed(0) + 'K' : v); } }
+        },
+        y: {
+          grid: { display: false },
+          ticks: { color: '#94a3b8', font: { size: 10 } }
+        }
+      }
+    }
+  });
+}
+
+function renderBvaTable(data) {
+  var items = data.items.slice().sort(function(a, b) { return b.pct - a.pct; });
+  var html = '<div style="overflow-x:auto"><table style="font-size:.72rem"><thead><tr>'
+    + '<th>Category</th><th style="text-align:right">Budget</th><th style="text-align:right">Actual</th>'
+    + '<th style="text-align:right">%</th><th style="text-align:right">Remaining</th></tr></thead><tbody>';
+
+  items.forEach(function(i) {
+    var pctColor = i.pct > 100 ? '#ef4444' : i.pct > 80 ? '#f59e0b' : '#86efac';
+    var remColor = i.remaining >= 0 ? '#86efac' : '#fca5a5';
+    // Clickable actual → drill to transactions
+    var parts = data.month.split('-');
+    var yr = parseInt(parts[0]), mo = parseInt(parts[1]);
+    var from = data.month + '-01';
+    var lastDay = new Date(yr, mo, 0).getDate();
+    var to = data.month + '-' + String(lastDay).padStart(2, '0');
+    var drill = "drillDown({from:\'" + from + "\',to:\'" + to + "\',category:" + i.category_id + "})";
+
+    html += '<tr>'
+      + '<td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + i.color + ';margin-right:4px"></span>' + i.category + '</td>'
+      + '<td style="text-align:right;color:#64748b">' + fmt(i.budget) + '</td>'
+      + '<td style="text-align:right"><a style="color:#f8fafc;cursor:pointer;text-decoration:underline" onclick="' + drill + '">' + fmt(i.actual) + '</a></td>'
+      + '<td style="text-align:right;color:' + pctColor + ';font-weight:600">' + i.pct + '%</td>'
+      + '<td style="text-align:right;color:' + remColor + '">' + fmt(i.remaining) + '</td>'
+      + '</tr>';
+  });
+
+  html += '</tbody></table></div>';
+  $('bva-table').innerHTML = html;
 }
