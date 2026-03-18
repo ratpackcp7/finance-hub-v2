@@ -84,7 +84,7 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
                         FROM transactions WHERE account_id = %s)
                     SELECT t.id, t.account_id, a.name, t.posted, t.amount, t.description, t.payee,
                            t.category_id, c.name, t.category_manual, t.pending, t.notes, t.is_transfer,
-                           t.category_source, bal.running_balance, t.recurring
+                           t.category_source, bal.running_balance, t.recurring, t.transfer_pair_id, t.source
                     FROM transactions t JOIN accounts a ON t.account_id = a.id
                     LEFT JOIN categories c ON t.category_id = c.id
                     LEFT JOIN bal ON t.id = bal.id {where}
@@ -94,7 +94,7 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
             cur.execute(
                 f"""SELECT t.id, t.account_id, a.name, t.posted, t.amount, t.description, t.payee,
                            t.category_id, c.name, t.category_manual, t.pending, t.notes, t.is_transfer,
-                           t.category_source, NULL as running_balance, t.recurring
+                           t.category_source, NULL as running_balance, t.recurring, t.transfer_pair_id, t.source
                     FROM transactions t JOIN accounts a ON t.account_id = a.id
                     LEFT JOIN categories c ON t.category_id = c.id {where}
                     ORDER BY t.posted DESC, t.id LIMIT %s OFFSET %s""",
@@ -116,7 +116,9 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
              "category_manual": r[9], "pending": r[10], "notes": r[11], "is_transfer": r[12],
              "category_source": r[13],
              "running_balance": float(r[14]) if r[14] is not None else None,
-             "recurring": r[15] if len(r) > 15 else False}
+             "recurring": r[15] if len(r) > 15 else False,
+             "transfer_pair_id": r[16] if len(r) > 16 else None,
+             "source": r[17] if len(r) > 17 else "sync"}
             for r in rows]}
 
 
@@ -267,11 +269,13 @@ def apply_transfers(body: TransferApplyRequest):
     marked = 0
     try:
         cur = conn.cursor()
+        import hashlib as _hl
         for pair in body.pairs:
+            pair_id = "xfer_" + _hl.sha256(":".join(sorted(pair)).encode()).hexdigest()[:16]
             for txn_id in pair:
                 cur.execute(
-                    "UPDATE transactions SET is_transfer = TRUE, updated_at = NOW() "
-                    "WHERE id = %s AND is_transfer = FALSE", (txn_id,))
+                    "UPDATE transactions SET is_transfer = TRUE, transfer_pair_id = %s, updated_at = NOW() "
+                    "WHERE id = %s AND is_transfer = FALSE", (pair_id, txn_id))
                 if cur.rowcount:
                     _audit(cur, "transaction", txn_id, "mark_transfer", source="user",
                            field_name="is_transfer", old_value=False, new_value=True)
@@ -280,3 +284,147 @@ def apply_transfers(body: TransferApplyRequest):
     finally:
         db_put(conn)
     return {"marked": marked}
+
+
+# ── Manual Transaction Entry (Phase 1 MVP) ──
+
+class ManualTxnCreate(BaseModel):
+    account_id: str
+    posted: date
+    amount: float
+    description: str
+    payee: Optional[str] = None
+    category_id: Optional[int] = None
+    notes: Optional[str] = None
+    is_transfer: bool = False
+
+
+@router.post("/transactions")
+def create_manual_transaction(body: ManualTxnCreate):
+    """Create a manually entered transaction."""
+    import hashlib
+    from datetime import datetime
+
+    if not body.description or not body.description.strip():
+        raise HTTPException(status_code=400, detail="description is required")
+    if not body.account_id:
+        raise HTTPException(status_code=400, detail="account_id is required")
+
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM accounts WHERE id = %s", (body.account_id,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Account not found")
+        if body.category_id is not None:
+            require_valid_category(cur, body.category_id)
+
+        ts = datetime.utcnow().isoformat()
+        txn_id = "manual_" + hashlib.sha256(
+            f"{body.account_id}:{body.posted}:{body.amount:.2f}:{body.description}:{ts}".encode()
+        ).hexdigest()[:20]
+
+        cur.execute(
+            """INSERT INTO transactions
+               (id, account_id, posted, amount, description, payee,
+                category_id, category_manual, category_source,
+                notes, is_transfer, pending, source)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE, 'manual')
+               RETURNING id""",
+            (txn_id, body.account_id, body.posted, body.amount,
+             body.description.strip(), (body.payee or "").strip() or None,
+             body.category_id, body.category_id is not None,
+             'user' if body.category_id else None,
+             (body.notes or "").strip() or None, body.is_transfer))
+
+        _audit(cur, "transaction", txn_id, "manual_create", source="user",
+               field_name="amount", new_value=f"{body.amount:.2f}")
+        conn.commit()
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db_put(conn)
+    return {"status": "ok", "id": txn_id}
+
+
+@router.delete("/transactions/{txn_id}")
+def delete_manual_transaction(txn_id: str):
+    """Delete a manually entered transaction. Only manual transactions can be deleted."""
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT source, amount, description FROM transactions WHERE id = %s", (txn_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        if row[0] != 'manual':
+            raise HTTPException(status_code=400, detail="Only manually entered transactions can be deleted")
+        cur.execute("DELETE FROM transactions WHERE id = %s", (txn_id,))
+        _audit(cur, "transaction", txn_id, "manual_delete", source="user",
+               field_name="amount", old_value=f"{row[1]:.2f}")
+        conn.commit()
+    finally:
+        db_put(conn)
+    return {"status": "ok"}
+
+
+# ── Transfer Pair Linking (Phase 1 MVP) ──
+
+class TransferLinkRequest(BaseModel):
+    txn_id_1: str
+    txn_id_2: str
+
+
+@router.post("/transfers/link")
+def link_transfer_pair(body: TransferLinkRequest):
+    """Link two transactions as a transfer pair."""
+    import hashlib
+
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, account_id, amount FROM transactions WHERE id IN (%s, %s)",
+                    (body.txn_id_1, body.txn_id_2))
+        rows = cur.fetchall()
+        if len(rows) != 2:
+            raise HTTPException(status_code=404, detail="One or both transactions not found")
+        accts = {r[0]: r[1] for r in rows}
+        if accts[body.txn_id_1] == accts[body.txn_id_2]:
+            raise HTTPException(status_code=400, detail="Transfer pairs must be in different accounts")
+
+        pair_id = "xfer_" + hashlib.sha256(
+            f"{body.txn_id_1}:{body.txn_id_2}".encode()
+        ).hexdigest()[:16]
+
+        for txn_id in (body.txn_id_1, body.txn_id_2):
+            cur.execute(
+                "UPDATE transactions SET is_transfer = TRUE, transfer_pair_id = %s, updated_at = NOW() "
+                "WHERE id = %s", (pair_id, txn_id))
+            _audit(cur, "transaction", txn_id, "link_transfer", source="user",
+                   field_name="transfer_pair_id", new_value=pair_id)
+        conn.commit()
+    finally:
+        db_put(conn)
+    return {"status": "ok", "pair_id": pair_id}
+
+
+@router.delete("/transfers/link/{pair_id}")
+def unlink_transfer_pair(pair_id: str):
+    """Unlink a transfer pair."""
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE transactions SET is_transfer = FALSE, transfer_pair_id = NULL, updated_at = NOW() "
+            "WHERE transfer_pair_id = %s", (pair_id,))
+        count = cur.rowcount
+        if count == 0:
+            raise HTTPException(status_code=404, detail="Transfer pair not found")
+        conn.commit()
+    finally:
+        db_put(conn)
+    return {"status": "ok", "unlinked": count}

@@ -16,7 +16,7 @@ def get_accounts():
     try:
         cur = conn.cursor()
         cur.execute(
-            "SELECT id, name, org_name, currency, balance, balance_date, on_budget, hidden, updated_at, account_type "
+            "SELECT id, name, org_name, currency, balance, balance_date, on_budget, hidden, updated_at, account_type, payment_due_day, minimum_payment, apr, credit_limit, autopay_enabled, loan_rate, loan_term_months, loan_payment, loan_maturity_date "
             "FROM accounts WHERE hidden = FALSE ORDER BY org_name, name")
         rows = cur.fetchall()
     finally:
@@ -26,12 +26,29 @@ def get_accounts():
              "balance_date": r[5].isoformat() if r[5] else None,
              "on_budget": r[6], "hidden": r[7],
              "updated_at": r[8].isoformat() if r[8] else None,
-             "account_type": r[9] or "checking", "on_budget": r[6]} for r in rows]
+             "account_type": r[9] or "checking", "on_budget": r[6],
+             "payment_due_day": r[10], "minimum_payment": float(r[11]) if r[11] is not None else None,
+             "apr": float(r[12]) if r[12] is not None else None,
+             "credit_limit": float(r[13]) if r[13] is not None else None,
+             "autopay_enabled": r[14] or False,
+             "loan_rate": float(r[15]) if r[15] is not None else None,
+             "loan_term_months": r[16],
+             "loan_payment": float(r[17]) if r[17] is not None else None,
+             "loan_maturity_date": r[18].isoformat() if r[18] else None} for r in rows]
 
 
 class AccountPatch(BaseModel):
     account_type: Optional[str] = None
     on_budget: Optional[bool] = None
+    payment_due_day: Optional[int] = None
+    minimum_payment: Optional[float] = None
+    apr: Optional[float] = None
+    credit_limit: Optional[float] = None
+    autopay_enabled: Optional[bool] = None
+    loan_rate: Optional[float] = None
+    loan_term_months: Optional[int] = None
+    loan_payment: Optional[float] = None
+    loan_maturity_date: Optional[str] = None
 
 
 @router.patch("/accounts/{acct_id}")
@@ -58,6 +75,28 @@ def patch_account(acct_id: str, body: AccountPatch):
                         (body.on_budget, acct_id))
             _audit(cur, "account", acct_id, "update", field_name="on_budget",
                    old_value=str(old_ob[0]) if old_ob else None, new_value=str(body.on_budget))
+
+        # Credit card / loan metadata
+        meta_fields = {
+            "payment_due_day": body.payment_due_day,
+            "minimum_payment": body.minimum_payment,
+            "apr": body.apr,
+            "credit_limit": body.credit_limit,
+            "autopay_enabled": body.autopay_enabled,
+            "loan_rate": body.loan_rate,
+            "loan_term_months": body.loan_term_months,
+            "loan_payment": body.loan_payment,
+            "loan_maturity_date": body.loan_maturity_date,
+        }
+        for field, value in meta_fields.items():
+            if value is not None:
+                cur.execute(f"SELECT {field} FROM accounts WHERE id = %s", (acct_id,))
+                old_val = cur.fetchone()
+                cur.execute(f"UPDATE accounts SET {field} = %s, updated_at = NOW() WHERE id = %s",
+                            (value, acct_id))
+                _audit(cur, "account", acct_id, "update", field_name=field,
+                       old_value=str(old_val[0]) if old_val and old_val[0] is not None else None,
+                       new_value=str(value))
         conn.commit()
     finally:
         db_put(conn)
