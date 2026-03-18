@@ -334,6 +334,8 @@
   <a data-page="spending" onclick="showPage('spending')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Spending</a>
   <a data-page="transactions" onclick="showPage('transactions')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>Transactions</a>
   <div class="sb-section">Manage</div>
+  <a data-page="review" onclick="showPage('review')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Review<span id="rv-sidebar-badge" style="display:none;margin-left:auto;min-width:18px;height:18px;border-radius:999px;background:#f59e0b;color:#000;font-size:.65rem;font-weight:700;padding:0 4px;display:inline-flex;align-items:center;justify-content:center"></span></a>
+
   <a data-page="rules" onclick="showPage('rules')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>Payee Rules</a>
   <a data-page="subscriptions" onclick="showPage('subscriptions')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>Subscriptions</a>
   <a data-page="imports" onclick="showPage('imports')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Imports</a>
@@ -360,11 +362,12 @@
   <div class="grid-4" style="margin-bottom:1rem">
     <div class="stat" style="cursor:pointer" onclick="drillDown({type:'debit'})"><div class="stat-label">This Month Spending</div><div class="stat-value" id="ds-spending">—</div><div class="stat-sub" style="color:#3b82f6">tap to view →</div></div>
     <div class="stat" style="cursor:pointer" onclick="drillDown({type:'credit'})"><div class="stat-label">This Month Income</div><div class="stat-value" id="ds-income">—</div><div class="stat-sub" style="color:#3b82f6">tap to view →</div></div>
-    <div class="stat" style="cursor:pointer" onclick="showPage('transactions');openAiCatModal()"><div class="stat-label">Uncategorized</div><div class="stat-value" id="ds-uncat">—</div><div class="stat-sub" style="color:#3b82f6">click to AI categorize →</div></div>
+    <div class="stat" style="cursor:pointer" onclick="showPage('review')"><div class="stat-label">Needs Review</div><div class="stat-value" id="ds-review" style="color:#fbbf24">—</div><div class="stat-sub" style="color:#3b82f6">tap to review →</div></div>
     <div class="stat" style="cursor:pointer" onclick="showPage('settings')"><div class="stat-label">Net Worth</div><div class="stat-value" id="ds-networth">—</div><div class="stat-sub" id="ds-acct-count" style="color:#3b82f6">tap for accounts →</div></div>
   </div>
   <div class="card" id="dash-budget-card" style="display:none"><div class="card-title">Budget Progress — This Month</div><div id="dash-budget-bars"></div><div id="dash-budget-total" style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid #1e2530;display:flex;justify-content:space-between;font-size:.82rem"></div></div>
   <div class="card" id="dash-nw-card" style="display:none"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem"><div class="card-title" style="margin:0">Net Worth Trend</div><div style="display:flex;gap:.3rem"><button class="quick-btn" onclick="setNwRange(1,this)">1M</button><button class="quick-btn" onclick="setNwRange(3,this)">3M</button><button class="quick-btn" onclick="setNwRange(6,this)">6M</button><button class="quick-btn active" onclick="setNwRange(12,this)">12M</button><button class="quick-btn" onclick="setNwRange(0,this)">YTD</button></div></div><div class="chart-wrap"><canvas id="chart-nw-trend"></canvas></div></div>
+  <div class="card" id="dash-bills-card" style="display:none"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem"><div class="card-title" style="margin:0">Upcoming Bills (7 days)</div><a href="#" onclick="showPage('bills');return false" style="font-size:.72rem;color:#3b82f6;text-decoration:none">View All →</a></div><div id="dash-bills"></div></div>
   <div class="card" id="dash-goals-card" style="display:none"><div class="card-title">Savings Goals</div><div id="dash-goals"></div></div>
   <div class="grid-2">
     <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem"><div class="card-title" style="margin:0" id="donut-title">Spending This Month — by Category</div><div style="display:flex;gap:.3rem"><button class="quick-btn active" onclick="setDonutRange('this-month',this)">This Month</button><button class="quick-btn" onclick="setDonutRange('last-month',this)">Last Month</button><button class="quick-btn" onclick="setDonutRange('3-months',this)">3M</button><button class="quick-btn" onclick="setDonutRange('ytd',this)">YTD</button></div></div><div class="donut-wrap"><canvas id="chart-donut"></canvas></div></div>
@@ -387,6 +390,37 @@
   </div>
   <div class="card" id="delta-card" style="display:none"><div class="card-title">Month-over-Month Change</div><div id="delta-summary" style="font-size:.85rem;margin-bottom:.75rem"></div><div id="delta-bars"></div></div>
   <div class="card"><div class="card-title">Monthly Trend</div><div class="chart-wrap"><canvas id="chart-trend"></canvas></div></div>
+</div>
+<div class="page" id="page-review">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+    <h2 style="font-size:1.1rem;font-weight:600;color:#f8fafc;margin:0">Review Queue</h2>
+    <div style="display:flex;gap:.4rem">
+      <button class="btn btn-ghost btn-sm" onclick="loadReviewQueue()">↻ Refresh</button>
+      <button class="btn btn-warning btn-sm" onclick="reviewMarkAllVisible()">Mark Visible ✓</button>
+      <button class="btn btn-success btn-sm" onclick="reviewMarkAllCategorized()">Mark All Reviewed</button>
+    </div>
+  </div>
+
+  <div class="grid-4" style="margin-bottom:1rem">
+    <div class="stat" style="cursor:pointer" onclick="setReviewFilter('uncategorized')"><div class="stat-label">Uncategorized</div><div class="stat-value" id="rv-uncat" style="color:#fbbf24">—</div></div>
+    <div class="stat" style="cursor:pointer" onclick="setReviewFilter('ai')"><div class="stat-label">AI-Assigned</div><div class="stat-value" id="rv-ai" style="color:#7dd3fc">—</div></div>
+    <div class="stat" style="cursor:pointer" onclick="setReviewFilter('recent')"><div class="stat-label">Recent (48h)</div><div class="stat-value" id="rv-recent" style="color:#86efac">—</div></div>
+    <div class="stat" style="cursor:pointer" onclick="setReviewFilter('large')"><div class="stat-label">Large (>$500)</div><div class="stat-value" id="rv-large" style="color:#fca5a5">—</div></div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
+      <div class="card-title" style="margin:0">Items Needing Attention <span id="rv-total" style="color:#fbbf24"></span></div>
+      <div style="display:flex;gap:.3rem">
+        <button class="rv-filter-btn quick-btn active" data-filter="" onclick="setReviewFilter('',this)">All</button>
+        <button class="rv-filter-btn quick-btn" data-filter="uncategorized" onclick="setReviewFilter('uncategorized',this)">Uncategorized</button>
+        <button class="rv-filter-btn quick-btn" data-filter="ai" onclick="setReviewFilter('ai',this)">AI</button>
+        <button class="rv-filter-btn quick-btn" data-filter="recent" onclick="setReviewFilter('recent',this)">Recent</button>
+        <button class="rv-filter-btn quick-btn" data-filter="large" onclick="setReviewFilter('large',this)">Large</button>
+      </div>
+    </div>
+    <div id="review-list"><p class="empty">Loading...</p></div>
+  </div>
 </div>
 <div class="page" id="page-transactions">
   <div class="txn-toolbar">
@@ -904,22 +938,22 @@
     </div>
   </div>
 </div>
-<script src="/static/js/core.js?v=1773873721"></script>
-<script src="/static/js/sync.js?v=1773873721"></script>
-<script src="/static/js/dashboard.js?v=1773873721"></script>
-<script src="/static/js/history.js?v=1773873721"></script>
-<script src="/static/js/insights.js?v=1773873721"></script>
-<script src="/static/js/sankey.js?v=1773873721"></script>
-<script src="/static/js/spending.js?v=1773873721"></script>
-<script src="/static/js/transactions.js?v=1773873721"></script>
-<script src="/static/js/transfers.js?v=1773873721"></script>
-<script src="/static/js/ai_categorize.js?v=1773873721"></script>
-<script src="/static/js/rules.js?v=1773873721"></script>
-<script src="/static/js/settings.js?v=1773873721"></script>
-<script src="/static/js/subscriptions.js?v=1773873721"></script>
-<script src="/static/js/imports.js?v=1773873721"></script>
-<script src="/static/js/reconcile.js?v=1773873721"></script>
-<script src="/static/js/feedback.js?v=1773873721"></script>
+<script src="/static/js/core.js?v=1773874573"></script>
+<script src="/static/js/sync.js?v=1773874573"></script>
+<script src="/static/js/dashboard.js?v=1773874573"></script>
+<script src="/static/js/history.js?v=1773874573"></script>
+<script src="/static/js/insights.js?v=1773874573"></script>
+<script src="/static/js/sankey.js?v=1773874573"></script>
+<script src="/static/js/spending.js?v=1773874573"></script>
+<script src="/static/js/transactions.js?v=1773874573"></script>
+<script src="/static/js/transfers.js?v=1773874573"></script>
+<script src="/static/js/ai_categorize.js?v=1773874573"></script>
+<script src="/static/js/rules.js?v=1773874573"></script>
+<script src="/static/js/settings.js?v=1773874573"></script>
+<script src="/static/js/subscriptions.js?v=1773874573"></script>
+<script src="/static/js/imports.js?v=1773874573"></script>
+<script src="/static/js/reconcile.js?v=1773874573"></script>
+<script src="/static/js/feedback.js?v=1773874573"></script>
 
 <!-- Feedback FAB -->
 <!-- Account Detail Modal -->
@@ -1121,11 +1155,12 @@
   </div>
 </div>
 
-<script src="/static/js/manual_entry.js?v=1773873721"></script>
-<script src="/static/js/account_detail.js?v=1773873721"></script>
-<script src="/static/js/splits.js?v=1773873721"></script>
-<script src="/static/js/tags.js?v=1773873721"></script>
-<script src="/static/js/bills.js?v=1773873721"></script>
+<script src="/static/js/manual_entry.js?v=1773874573"></script>
+<script src="/static/js/account_detail.js?v=1773874573"></script>
+<script src="/static/js/splits.js?v=1773874573"></script>
+<script src="/static/js/tags.js?v=1773874573"></script>
+<script src="/static/js/bills.js?v=1773874573"></script>
 <script src="/static/js/goals.js"></script>
+<script src="/static/js/review.js"></script>
 </body>
 </html>

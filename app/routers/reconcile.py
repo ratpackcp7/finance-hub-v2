@@ -277,3 +277,38 @@ def abandon_session(session_id: int):
     finally:
         db_put(conn)
     return {"status": "abandoned"}
+
+
+
+@router.post("/sessions/{session_id}/unlock")
+def unlock_session(session_id: int):
+    """Unlock a completed reconciliation session, removing reconciled_at from its transactions."""
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT status, account_id, statement_date FROM reconciliation_sessions WHERE id = %s",
+            (session_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Session not found")
+        if row[0] != "completed":
+            raise HTTPException(status_code=400, detail="Only completed sessions can be unlocked")
+
+        # Remove reconciled_at from transactions in this period
+        cur.execute(
+            "UPDATE transactions SET reconciled_at = NULL, updated_at = NOW() "
+            "WHERE account_id = %s AND posted <= %s AND reconciled_at IS NOT NULL",
+            (row[1], row[2]))
+        unlocked = cur.rowcount
+
+        cur.execute(
+            "UPDATE reconciliation_sessions SET status = 'reopened', completed_at = NULL "
+            "WHERE id = %s", (session_id,))
+
+        _audit(cur, "reconciliation", session_id, "unlock", source="user",
+               field_name="transactions_unlocked", new_value=str(unlocked))
+        conn.commit()
+    finally:
+        db_put(conn)
+    return {"status": "ok", "unlocked": unlocked}

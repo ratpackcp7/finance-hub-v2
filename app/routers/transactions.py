@@ -91,7 +91,7 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
                         FROM transactions WHERE account_id = %s)
                     SELECT t.id, t.account_id, a.name, t.posted, t.amount, t.description, t.payee,
                            t.category_id, c.name, t.category_manual, t.pending, t.notes, t.is_transfer,
-                           t.category_source, bal.running_balance, t.recurring, t.transfer_pair_id, t.source, t.has_splits
+                           t.category_source, bal.running_balance, t.recurring, t.transfer_pair_id, t.source, t.has_splits, t.reconciled_at
                     FROM transactions t JOIN accounts a ON t.account_id = a.id
                     LEFT JOIN categories c ON t.category_id = c.id
                     LEFT JOIN bal ON t.id = bal.id {tag_join} {where}
@@ -101,7 +101,7 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
             cur.execute(
                 f"""SELECT t.id, t.account_id, a.name, t.posted, t.amount, t.description, t.payee,
                            t.category_id, c.name, t.category_manual, t.pending, t.notes, t.is_transfer,
-                           t.category_source, NULL as running_balance, t.recurring, t.transfer_pair_id, t.source, t.has_splits
+                           t.category_source, NULL as running_balance, t.recurring, t.transfer_pair_id, t.source, t.has_splits, t.reconciled_at
                     FROM transactions t JOIN accounts a ON t.account_id = a.id
                     LEFT JOIN categories c ON t.category_id = c.id {tag_join} {where}
                     ORDER BY t.posted DESC, t.id LIMIT %s OFFSET %s""",
@@ -179,10 +179,12 @@ def patch_transaction(txn_id: str, body: TxnPatch):
     conn = db_conn()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT category_id, payee, notes FROM transactions WHERE id = %s", (txn_id,))
+        cur.execute("SELECT category_id, payee, notes, reconciled_at FROM transactions WHERE id = %s", (txn_id,))
         old = cur.fetchone()
         if not old:
             raise HTTPException(status_code=404, detail="Transaction not found")
+        if old[3] is not None:
+            raise HTTPException(status_code=400, detail="Transaction is in a reconciled period. Unlock in Reconcile page first.")
         old_cat, old_payee, old_notes = old
         updates, params = [], []
         if "category_id" in body.model_fields_set:

@@ -52,10 +52,12 @@ def set_splits(body: SplitRequest):
         cur = conn.cursor()
 
         # Get parent transaction
-        cur.execute("SELECT amount, account_id FROM transactions WHERE id = %s", (body.txn_id,))
+        cur.execute("SELECT amount, account_id, reconciled_at FROM transactions WHERE id = %s", (body.txn_id,))
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Transaction not found")
+        if row[2] is not None:
+            raise HTTPException(status_code=400, detail="Transaction is in a reconciled period. Unlock first.")
         parent_amount = float(row[0])
 
         # Validate split sum matches parent

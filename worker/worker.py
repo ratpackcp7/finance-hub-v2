@@ -78,6 +78,30 @@ def take_balance_snapshot(conn):
     return count
 
 
+def take_goal_snapshot(conn):
+    """Snapshot progress for all active savings goals."""
+    cur = conn.cursor()
+    today = date.today()
+    cur.execute("""
+        INSERT INTO goal_snapshots (goal_id, snapshot_date, amount)
+        SELECT g.id, %s,
+               CASE WHEN g.account_id IS NOT NULL AND a.balance IS NOT NULL
+                    THEN a.balance
+                    ELSE COALESCE(g.current_amount, 0)
+               END
+        FROM savings_goals g
+        LEFT JOIN accounts a ON g.account_id = a.id
+        WHERE g.status = 'active'
+        ON CONFLICT (goal_id, snapshot_date) DO UPDATE SET
+            amount = EXCLUDED.amount
+    """, (today,))
+    count = cur.rowcount
+    conn.commit()
+    if count:
+        logger.info("Goal snapshot: %d goals for %s", count, today)
+    return count
+
+
 def purge_old_payloads(conn):
     """Null out raw_payload on old import batches + per-txn raw JSON.
     Keeps batch metadata (counts, status, timestamps) forever."""
@@ -147,6 +171,10 @@ def scheduled_sync():
             refresh_holding_prices(conn)
         except Exception as e:
             logger.error("Holding price refresh failed: %s", e)
+        try:
+            take_goal_snapshot(conn)
+        except Exception as e:
+            logger.error("Goal snapshot failed: %s", e)
         try:
             purge_old_payloads(conn)
         except Exception as e:

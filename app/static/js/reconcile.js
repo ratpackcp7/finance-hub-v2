@@ -12,3 +12,13 @@ async function reconToggle(txnId,cleared){await api(`/api/reconcile/sessions/${_
 async function reconSelectAll(val){const cbs=document.querySelectorAll('#recon-txn-tbody input[type=checkbox]');const ids=[];cbs.forEach(cb=>{const tr=cb.closest('tr');const txnId=cb.getAttribute('onchange').match(/'([^']+)'/)[1];if(!!cb.checked!==val)ids.push(txnId);});if(ids.length)await api(`/api/reconcile/sessions/${_reconSessionId}/clear`,{method:'POST',body:JSON.stringify({txn_ids:ids,cleared:val})});refreshRecon();}
 async function completeRecon(){customConfirm('Complete this reconciliation? All cleared transactions will be marked as reconciled.',async function(){try{await api('/api/reconcile/sessions/'+_reconSessionId+'/complete',{method:'POST',body:JSON.stringify({})});_reconSessionId=null;$('recon-active-card').style.display='none';loadReconHistory();}catch(e){toast('Error: '+(e.message||e),'error');}});}
 async function abandonRecon(){customConfirm('Abandon this session? All cleared marks will be removed.',async function(){try{await api('/api/reconcile/sessions/'+_reconSessionId+'/abandon',{method:'POST',body:JSON.stringify({})});_reconSessionId=null;$('recon-active-card').style.display='none';loadReconHistory();}catch(e){toast('Error: '+(e.message||e),'error');}});}
+
+async function unlockRecon(sessionId) {
+  customConfirm('Unlock this reconciled period? Transactions will become editable again.', async function() {
+    try {
+      var r = await api('/api/reconcile/sessions/' + sessionId + '/unlock', { method: 'POST' });
+      toast(r.unlocked + ' transactions unlocked', 'success');
+      loadReconHistory();
+    } catch(e) { toast('Error: ' + e.message, 'error'); }
+  }, 'Unlock', 'btn btn-warning');
+}

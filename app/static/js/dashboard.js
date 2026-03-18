@@ -28,7 +28,7 @@ async function loadDashboard() {
   $('ds-networth').textContent = fmt(netWorth.net_worth || 0);
   $('ds-acct-count').textContent = accts.length + ' accounts';
   var uncatSpend = catSpend.find(function(c) { return c.category === 'Uncategorized'; });
-  $('ds-uncat').textContent = uncatSpend ? uncatSpend.count : 0;
+  // Review count loaded by loadReviewCounts() in review.js
 
   // Budget progress
   if (budgetStatus.budgets && budgetStatus.budgets.length > 0) {
@@ -50,6 +50,7 @@ async function loadDashboard() {
   renderBarChart(monthly);
   renderSyncLog(syncLogs);
   loadNwChart();
+  loadDashBills();
 }
 
 // ── Donut chart: spending by category ──
@@ -205,6 +206,28 @@ async function loadNwChart() {
     console.error('NW history:', e);
     $('dash-nw-card').style.display = 'none';
   }
+}
+
+// ── Dashboard: upcoming bills widget ──
+async function loadDashBills() {
+  var card = $('dash-bills-card');
+  if (!card) return;
+  try {
+    var data = await api('/api/bills/upcoming?days=7');
+    if (!data.bills.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    $('dash-bills').innerHTML = data.bills.slice(0, 5).map(function(b) {
+      var urgent = b.days_until <= 2;
+      var color = urgent ? '#fbbf24' : '#64748b';
+      var label = b.days_until === 0 ? 'TODAY' : b.days_until === 1 ? 'Tomorrow' : b.days_until + 'd';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.3rem 0;border-bottom:1px solid #0f1117;font-size:.78rem">'
+        + '<span style="color:#e2e8f0">' + esc(b.name) + '</span>'
+        + '<div style="display:flex;gap:.5rem;align-items:center">'
+        + '<span class="amt-neg">' + (b.amount ? fmt(b.amount) : '') + '</span>'
+        + '<span style="color:' + color + ';font-size:.7rem;font-weight:600;min-width:50px;text-align:right">' + label + '</span>'
+        + '</div></div>';
+    }).join('');
+  } catch(e) { card.style.display = 'none'; }
 }
 
 // Boot
