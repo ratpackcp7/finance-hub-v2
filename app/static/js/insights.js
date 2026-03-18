@@ -321,6 +321,7 @@ function renderHoldingsTable(data) {
   // Populate account dropdown for add form
   populateHoldingAccounts();
 
+  window._lastHoldingsData = data;
   if (!data.holdings.length) {
     el.innerHTML = '<p class="empty">No holdings tracked yet. Add one below.</p>';
     return;
@@ -345,12 +346,18 @@ function renderHoldingsTable(data) {
     html += '<tr>'
       + '<td style="font-weight:600;color:#818cf8">' + h.ticker + '</td>'
       + '<td style="font-size:.74rem">' + h.name + '</td>'
-      + '<td style="text-align:right"><input type="number" step="0.01" value="' + h.shares.toFixed(4) + '" style="' + inputStyle + '" onchange="saveHolding(' + h.id + ',{shares:parseFloat(this.value)})"></td>'
+      + (_holdingsEditMode
+        ? '<td style="text-align:right"><input type="number" step="0.01" value="' + h.shares.toFixed(4) + '" style="' + inputStyle + '" onchange="saveHolding(' + h.id + ',{shares:parseFloat(this.value)})"></td>'
+        : '<td style="text-align:right;font-variant-numeric:tabular-nums">' + h.shares.toFixed(2) + '</td>')
       + '<td style="text-align:right;color:#64748b">' + price + '</td>'
       + '<td style="text-align:right;font-weight:600">' + val + '</td>'
-      + '<td style="text-align:right"><input type="number" step="0.01" value="' + (h.cost_basis || 0) + '" style="' + inputStyle + '" onchange="saveHolding(' + h.id + ',{cost_basis:parseFloat(this.value)})"></td>'
+      + (_holdingsEditMode
+        ? '<td style="text-align:right"><input type="number" step="0.01" value="' + (h.cost_basis || 0) + '" style="' + inputStyle + '" onchange="saveHolding(' + h.id + ',{cost_basis:parseFloat(this.value)})"></td>'
+        : '<td style="text-align:right;color:#64748b">' + (h.cost_basis ? fmt(h.cost_basis) : '\u2014') + '</td>')
       + '<td style="text-align:right;color:' + gainColor + '">' + gainStr + '</td>'
-      + '<td><button class="btn btn-ghost btn-sm" style="color:#ef4444;font-size:.68rem;padding:.1rem .3rem" onclick="removeHolding(' + h.id + ')">\u2715</button></td></tr>';
+      + (_holdingsEditMode
+        ? '<td><button class="btn btn-ghost btn-sm" style="color:#ef4444;font-size:.68rem;padding:.1rem .3rem" onclick="removeHolding(' + h.id + ')">\u2715</button></td></tr>'
+        : '<td></td></tr>');
   });
 
   html += '<tr style="border-top:2px solid #1e2530;font-weight:700"><td colspan="4">Total Portfolio</td>'
@@ -360,6 +367,21 @@ function renderHoldingsTable(data) {
     + (data.total_gain !== null ? fmt(data.total_gain) : '\u2014') + '</td><td></td></tr>';
   html += '</tbody></table></div>';
   el.innerHTML = html;
+}
+
+var _holdingsEditMode = false;
+
+function toggleHoldingsEdit() {
+  _holdingsEditMode = !_holdingsEditMode;
+  var btn = $('hld-edit-btn');
+  if (btn) {
+    btn.textContent = _holdingsEditMode ? '✓ Done' : '✏ Edit';
+    btn.className = _holdingsEditMode ? 'btn btn-success btn-sm' : 'btn btn-ghost btn-sm';
+  }
+  var addForm = $('hld-add-form');
+  if (addForm) addForm.style.display = _holdingsEditMode ? '' : 'none';
+  // Re-render table
+  if (window._lastHoldingsData) renderHoldingsTable(window._lastHoldingsData);
 }
 
 async function populateHoldingAccounts() {

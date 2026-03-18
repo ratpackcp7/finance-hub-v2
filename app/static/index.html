@@ -565,10 +565,10 @@
   <div class="card" style="margin-bottom:1rem">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
       <div class="card-title" style="margin:0">Portfolio Holdings</div>
-      <button class="btn btn-ghost btn-sm" onclick="refreshHoldingPrices()">↻ Refresh Prices</button>
+      <div style="display:flex;gap:.4rem"><button class="btn btn-ghost btn-sm" id="hld-edit-btn" onclick="toggleHoldingsEdit()">✏ Edit</button><button class="btn btn-ghost btn-sm" onclick="refreshHoldingPrices()">↻ Refresh Prices</button></div>
     </div>
     <div id="ins-holdings-table"><p class="empty">Loading...</p></div>
-    <div style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid #1e2530">
+    <div id="hld-add-form" style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid #1e2530;display:none">
       <div style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem">Add Holding</div>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:end">
         <select id="hld-account" style="font-size:.78rem;padding:.3rem .5rem;min-width:140px;background:#0d1117;color:#e2e8f0;border:1px solid #1e2530;border-radius:4px"><option value="">Account...</option></select>
@@ -653,21 +653,21 @@
     </div>
   </div>
 </div>
-<script src="/static/js/core.js?v=1773851607"></script>
-<script src="/static/js/sync.js?v=1773851607"></script>
-<script src="/static/js/dashboard.js?v=1773851607"></script>
-<script src="/static/js/insights.js?v=1773851607"></script>
-<script src="/static/js/sankey.js?v=1773851607"></script>
-<script src="/static/js/spending.js?v=1773851607"></script>
-<script src="/static/js/transactions.js?v=1773851607"></script>
-<script src="/static/js/transfers.js?v=1773851607"></script>
-<script src="/static/js/ai_categorize.js?v=1773851607"></script>
-<script src="/static/js/rules.js?v=1773851607"></script>
-<script src="/static/js/settings.js?v=1773851607"></script>
-<script src="/static/js/subscriptions.js?v=1773851607"></script>
-<script src="/static/js/imports.js?v=1773851607"></script>
-<script src="/static/js/reconcile.js?v=1773851607"></script>
-<script src="/static/js/feedback.js?v=1773851607"></script>
+<script src="/static/js/core.js?v=1773852293"></script>
+<script src="/static/js/sync.js?v=1773852293"></script>
+<script src="/static/js/dashboard.js?v=1773852293"></script>
+<script src="/static/js/insights.js?v=1773852293"></script>
+<script src="/static/js/sankey.js?v=1773852293"></script>
+<script src="/static/js/spending.js?v=1773852293"></script>
+<script src="/static/js/transactions.js?v=1773852293"></script>
+<script src="/static/js/transfers.js?v=1773852293"></script>
+<script src="/static/js/ai_categorize.js?v=1773852293"></script>
+<script src="/static/js/rules.js?v=1773852293"></script>
+<script src="/static/js/settings.js?v=1773852293"></script>
+<script src="/static/js/subscriptions.js?v=1773852293"></script>
+<script src="/static/js/imports.js?v=1773852293"></script>
+<script src="/static/js/reconcile.js?v=1773852293"></script>
+<script src="/static/js/feedback.js?v=1773852293"></script>
 
 <!-- Feedback FAB -->
 <button class="feedback-fab" onclick="openFeedbackModal()" title="Bug report or feature request">✏️</button>
