@@ -27,7 +27,7 @@ def _parse_category_filter(raw: Optional[str]) -> tuple[Optional[int], bool]:
 
 def _txn_filters(account_id=None, category_id=None, start_date=None, end_date=None,
                  search=None, pending=None, exclude_transfers=False, txn_type=None,
-                 uncategorized=False):
+                 uncategorized=False, recurring=None):
     filters, params = [], []
     if account_id:
         filters.append("t.account_id = %s"); params.append(account_id)
@@ -50,6 +50,8 @@ def _txn_filters(account_id=None, category_id=None, start_date=None, end_date=No
         filters.append("t.amount < 0")
     elif txn_type == "credit":
         filters.append("t.amount > 0")
+    if recurring is not None:
+        filters.append("t.recurring = %s"); params.append(recurring)
     return filters, params
 
 
@@ -57,14 +59,15 @@ def _txn_filters(account_id=None, category_id=None, start_date=None, end_date=No
 def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str] = None,
                      category_id: Optional[str] = None, start_date: Optional[date] = None,
                      end_date: Optional[date] = None, search: Optional[str] = None,
-                     pending: Optional[bool] = None, txn_type: Optional[str] = None):
+                     pending: Optional[bool] = None, txn_type: Optional[str] = None,
+                     recurring: Optional[bool] = None):
     conn = db_conn()
     try:
         cur = conn.cursor()
         parsed_category_id, uncategorized = _parse_category_filter(category_id)
         filters, params = _txn_filters(
             account_id, parsed_category_id, start_date, end_date, search, pending,
-            txn_type=txn_type, uncategorized=uncategorized
+            txn_type=txn_type, uncategorized=uncategorized, recurring=recurring
         )
         where = ("WHERE " + " AND ".join(filters)) if filters else ""
         if account_id:
@@ -73,7 +76,7 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
                         FROM transactions WHERE account_id = %s)
                     SELECT t.id, t.account_id, a.name, t.posted, t.amount, t.description, t.payee,
                            t.category_id, c.name, t.category_manual, t.pending, t.notes, t.is_transfer,
-                           t.category_source, bal.running_balance
+                           t.category_source, bal.running_balance, t.recurring
                     FROM transactions t JOIN accounts a ON t.account_id = a.id
                     LEFT JOIN categories c ON t.category_id = c.id
                     LEFT JOIN bal ON t.id = bal.id {where}
@@ -83,7 +86,7 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
             cur.execute(
                 f"""SELECT t.id, t.account_id, a.name, t.posted, t.amount, t.description, t.payee,
                            t.category_id, c.name, t.category_manual, t.pending, t.notes, t.is_transfer,
-                           t.category_source, NULL as running_balance
+                           t.category_source, NULL as running_balance, t.recurring
                     FROM transactions t JOIN accounts a ON t.account_id = a.id
                     LEFT JOIN categories c ON t.category_id = c.id {where}
                     ORDER BY t.posted DESC, t.id LIMIT %s OFFSET %s""",
@@ -104,7 +107,8 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
              "description": r[5], "payee": r[6], "category_id": r[7], "category": r[8],
              "category_manual": r[9], "pending": r[10], "notes": r[11], "is_transfer": r[12],
              "category_source": r[13],
-             "running_balance": float(r[14]) if r[14] is not None else None}
+             "running_balance": float(r[14]) if r[14] is not None else None,
+             "recurring": r[15] if len(r) > 15 else False}
             for r in rows]}
 
 
@@ -149,6 +153,7 @@ class TxnPatch(BaseModel):
     category_id: Optional[int] = None
     payee: Optional[str] = None
     notes: Optional[str] = None
+    recurring: Optional[bool] = None
 
 
 @router.patch("/transactions/{txn_id}")
@@ -183,6 +188,8 @@ def patch_transaction(txn_id: str, body: TxnPatch):
             updates.append("notes = %s"); params.append(body.notes)
             _audit(cur, "transaction", txn_id, "update", field_name="notes",
                    old_value=old_notes, new_value=body.notes)
+        if body.recurring is not None:
+            updates.append("recurring = %s"); params.append(body.recurring)
         if not updates:
             return {"status": "no-op"}
         updates.append("updated_at = NOW()"); params.append(txn_id)

@@ -394,6 +394,7 @@
     <div class="field"><label>Category</label><select id="t-category" onchange="window._drillType=null;loadTxns()" style="min-width:150px"><option value="">All categories</option><option value="none">Uncategorized</option></select></div>
     <div class="field"><label>From</label><input type="date" id="t-from" onchange="window._drillType=null;loadTxns()" style="width:140px"></div>
     <div class="field"><label>To</label><input type="date" id="t-to" onchange="window._drillType=null;loadTxns()" style="width:140px"></div>
+    <div class="field"><label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;white-space:nowrap;margin-top:1.1rem"><input type="checkbox" id="t-recurring" onchange="window._drillType=null;txnOffset=0;loadTxns()"> Recurring only</label></div>
     <div class="filter-actions desktop-only">
       <button class="btn btn-ghost" onclick="clearTxnFilters()">Clear</button>
       <button class="btn btn-ghost" onclick="exportCsv()" title="Download CSV">⬇ CSV</button>
@@ -547,20 +548,20 @@
     </div>
   </div>
 </div>
-<script src="/static/js/core.js?v=1773841798"></script>
-<script src="/static/js/sync.js?v=1773841798"></script>
-<script src="/static/js/dashboard.js?v=1773841798"></script>
-<script src="/static/js/sankey.js?v=1773841798"></script>
-<script src="/static/js/spending.js?v=1773841798"></script>
-<script src="/static/js/transactions.js?v=1773841798"></script>
-<script src="/static/js/transfers.js?v=1773841798"></script>
-<script src="/static/js/ai_categorize.js?v=1773841798"></script>
-<script src="/static/js/rules.js?v=1773841798"></script>
-<script src="/static/js/settings.js?v=1773841798"></script>
-<script src="/static/js/subscriptions.js?v=1773841798"></script>
-<script src="/static/js/imports.js?v=1773841798"></script>
-<script src="/static/js/reconcile.js?v=1773841798"></script>
-<script src="/static/js/feedback.js?v=1773841798"></script>
+<script src="/static/js/core.js?v=1773842082"></script>
+<script src="/static/js/sync.js?v=1773842082"></script>
+<script src="/static/js/dashboard.js?v=1773842082"></script>
+<script src="/static/js/sankey.js?v=1773842082"></script>
+<script src="/static/js/spending.js?v=1773842082"></script>
+<script src="/static/js/transactions.js?v=1773842082"></script>
+<script src="/static/js/transfers.js?v=1773842082"></script>
+<script src="/static/js/ai_categorize.js?v=1773842082"></script>
+<script src="/static/js/rules.js?v=1773842082"></script>
+<script src="/static/js/settings.js?v=1773842082"></script>
+<script src="/static/js/subscriptions.js?v=1773842082"></script>
+<script src="/static/js/imports.js?v=1773842082"></script>
+<script src="/static/js/reconcile.js?v=1773842082"></script>
+<script src="/static/js/feedback.js?v=1773842082"></script>
 
 <!-- Feedback FAB -->
 <button class="feedback-fab" onclick="openFeedbackModal()" title="Bug report or feature request">✏️</button>
