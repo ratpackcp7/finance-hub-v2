@@ -63,7 +63,7 @@ async function loadDebtPayoff() {
     if (data.message) {
       html += '<div style="padding:.6rem .8rem;background:#713f12;border:1px solid #92400e;border-radius:8px;margin-bottom:1rem;font-size:.82rem;color:#fde68a">'
         + '\u26a0 ' + data.message
-        + ' <span style="color:#fbbf24;cursor:pointer;text-decoration:underline" onclick="showPage(\'settings\')">Go to Settings \u2192</span></div>';
+        + ' \u2014 click Edit on any row below to add details.</div>';
     }
     html += '<div class="grid-4" style="margin-bottom:1rem">'
       + '<div class="stat"><div class="stat-label">Total Debt</div><div class="stat-value amt-neg">' + fmt(data.total_balance) + '</div></div>'
@@ -74,24 +74,36 @@ async function loadDebtPayoff() {
       + (data.months_saved ? '<div class="stat-sub" style="color:#22c55e">' + data.months_saved + ' months saved vs minimum</div>' : '') + '</div>'
       + '</div>';
 
-    html += '<table style="font-size:.8rem"><thead><tr><th>Account</th><th>Type</th><th style="text-align:right">Balance</th><th style="text-align:right">Rate</th><th style="text-align:right">Payment</th><th>Payoff</th><th></th></tr></thead><tbody>';
+    // Card-style debt list instead of table
+    html += '<div style="display:flex;flex-direction:column;gap:.5rem">';
     data.debts.forEach(function(d) {
-      var dateStr = d.paid_off_date ? d.paid_off_date.slice(0, 7) : '\u2014';
+      var dateStr = d.paid_off_date ? d.paid_off_date.slice(0, 7) : '';
       var moStr = d.paid_off_month ? d.paid_off_month + ' mo' : '\u2014';
-      var editBtn = d.id && typeof openAccountDetail === 'function'
-        ? '<button class="btn btn-ghost btn-sm" onclick="openAccountDetail(\'' + d.id + '\')" title="Edit account details">\u270f</button>'
-        : '';
-      html += '<tr>'
-        + '<td>' + esc(d.name) + '</td>'
-        + '<td style="color:#64748b">' + d.type + '</td>'
-        + '<td class="amt-neg" style="text-align:right">' + fmt(d.starting_balance) + '</td>'
-        + '<td style="text-align:right;color:#f59e0b">' + (d.rate ? d.rate.toFixed(2) + '%' : '\u2014') + '</td>'
-        + '<td style="text-align:right">' + fmt(d.min_payment) + '</td>'
-        + '<td style="color:#86efac">' + moStr + '<span style="color:#64748b;font-size:.72rem;margin-left:.3rem">' + dateStr + '</span></td>'
-        + '<td>' + editBtn + '</td>'
-        + '</tr>';
+      var needsData = !d.rate && !d.min_payment;
+      var cardBorder = needsData ? '#92400e' : '#1e2530';
+
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:.75rem 1rem;border:1px solid ' + cardBorder + ';border-radius:8px;background:#0f1117">'
+        // Left: name + type
+        + '<div style="flex:1;min-width:0">'
+        + '<div style="font-size:.85rem;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(d.name) + '</div>'
+        + '<div style="font-size:.72rem;color:#64748b">' + d.type
+        + (d.rate ? ' \u00b7 ' + d.rate.toFixed(2) + '% APR' : '')
+        + (d.min_payment ? ' \u00b7 ' + fmt(d.min_payment) + '/mo' : '')
+        + '</div>'
+        + '</div>'
+        // Center: balance
+        + '<div style="text-align:right;margin:0 1rem">'
+        + '<div class="amt-neg" style="font-size:.92rem;font-weight:600">' + fmt(d.starting_balance) + '</div>'
+        + (d.paid_off_month ? '<div style="font-size:.72rem;color:#86efac">' + moStr + '</div>' : '')
+        + '</div>'
+        // Right: edit button
+        + (d.id && typeof openAccountDetail === 'function'
+          ? '<button class="btn btn-primary" style="padding:.5rem 1rem;font-size:.82rem;min-width:70px" onclick="openAccountDetail(\'' + d.id + '\')">\u270f Edit</button>'
+          : '')
+        + '</div>';
     });
-    html += '</tbody></table>';
+    html += '</div>';
+
     el.innerHTML = html;
   } catch (e) {
     el.innerHTML = '<p class="empty" style="color:#fca5a5">Error: ' + e.message + '</p>';
