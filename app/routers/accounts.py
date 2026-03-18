@@ -104,6 +104,119 @@ def take_snapshot():
     return {"status": "ok", "accounts": count, "date": date.today().isoformat()}
 
 
+
+@router.get("/net-worth/breakdown")
+def net_worth_breakdown():
+    """Net worth grouped by account type with individual accounts."""
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, name, COALESCE(account_type, 'checking'), balance, on_budget "
+            "FROM accounts WHERE hidden = FALSE AND balance IS NOT NULL ORDER BY account_type, balance DESC")
+        rows = cur.fetchall()
+    finally:
+        db_put(conn)
+    groups = {}
+    for r in rows:
+        atype = r[2]
+        if atype not in groups:
+            groups[atype] = {"type": atype, "total": 0, "accounts": []}
+        acct = {"id": r[0], "name": r[1], "balance": float(r[3]), "on_budget": r[4]}
+        groups[atype]["total"] += float(r[3])
+        groups[atype]["accounts"].append(acct)
+    return {"groups": sorted(groups.values(), key=lambda g: -abs(g["total"]))}
+
+
+@router.get("/debt/summary")
+def debt_summary():
+    """Loan accounts with payment history for payoff tracking."""
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        # Get loan/mortgage accounts
+        cur.execute(
+            "SELECT id, name, COALESCE(account_type, 'checking'), balance "
+            "FROM accounts WHERE hidden = FALSE AND account_type IN ('loan', 'mortgage') "
+            "ORDER BY balance ASC")
+        accts = cur.fetchall()
+        
+        # Get balance snapshots for these accounts
+        result = []
+        for a in accts:
+            cur.execute(
+                "SELECT snapshot_date, balance FROM balance_snapshots "
+                "WHERE account_id = %s ORDER BY snapshot_date ASC", (a[0],))
+            snaps = cur.fetchall()
+            result.append({
+                "id": a[0], "name": a[1], "type": a[2],
+                "balance": float(a[3]),
+                "history": [{"date": s[0].isoformat(), "balance": float(s[1])} for s in snaps]
+            })
+    finally:
+        db_put(conn)
+    total_debt = sum(abs(a["balance"]) for a in result)
+    return {"accounts": result, "total_debt": total_debt}
+
+
+@router.get("/investments/history")
+def investment_history(months: int = 12):
+    """Per-account balance history for investment/retirement/brokerage accounts."""
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cutoff = date.today() - timedelta(days=months * 31)
+        cur.execute(
+            "SELECT bs.snapshot_date, bs.account_id, bs.account_name, bs.account_type, bs.balance "
+            "FROM balance_snapshots bs "
+            "JOIN accounts a ON a.id = bs.account_id "
+            "WHERE a.account_type IN ('investment', 'retirement', 'brokerage') "
+            "AND a.hidden = FALSE AND bs.snapshot_date >= %s "
+            "ORDER BY bs.snapshot_date ASC", (cutoff,))
+        rows = cur.fetchall()
+    finally:
+        db_put(conn)
+    # Group by account
+    by_acct = {}
+    for snap_date, acct_id, acct_name, acct_type, balance in rows:
+        if acct_id not in by_acct:
+            by_acct[acct_id] = {"id": acct_id, "name": acct_name, "type": acct_type, "history": []}
+        by_acct[acct_id]["history"].append({"date": snap_date.isoformat(), "balance": float(balance)})
+    return {"accounts": list(by_acct.values())}
+
+
+@router.get("/dividends/summary")
+def dividend_summary():
+    """Dividend income from investment accounts."""
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        # Positive transactions in investment/retirement/brokerage accounts
+        # that represent real income (not reinvestment pairs)
+        cur.execute("""
+            SELECT DATE_TRUNC('month', t.posted)::date AS month,
+                   t.payee, a.name AS account_name, SUM(t.amount) AS total
+            FROM transactions t
+            JOIN accounts a ON a.id = t.account_id
+            WHERE a.account_type IN ('investment', 'retirement', 'brokerage')
+            AND t.amount > 0
+                        GROUP BY 1, 2, 3
+            ORDER BY 1 DESC, 4 DESC
+        """)
+        rows = cur.fetchall()
+    finally:
+        db_put(conn)
+    entries = []
+    monthly_totals = {}
+    for month, payee, acct, total in rows:
+        m = month.isoformat()[:7]
+        entries.append({"month": m, "payee": payee, "account": acct, "amount": float(total)})
+        monthly_totals[m] = monthly_totals.get(m, 0) + float(total)
+    return {
+        "entries": entries,
+        "monthly_totals": [{"month": m, "total": t} for m, t in sorted(monthly_totals.items())]
+    }
+
 @router.get("/net-worth/history")
 def net_worth_history(months: int = 12):
     conn = db_conn()
