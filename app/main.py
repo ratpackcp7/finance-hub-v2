@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
     close_pool()
 
 
-app = FastAPI(title="Finance Hub", version="4.4.0", lifespan=lifespan)
+app = FastAPI(title="Finance Hub", version="4.5.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # ── Register routers ──
@@ -54,6 +54,8 @@ from routers.reconcile import router as reconcile_router
 from routers.feedback import router as feedback_router
 from routers.audit import router as audit_router
 from routers.holdings import router as holdings_router
+from routers.splits import router as splits_router
+from routers.tags import router as tags_router
 
 app.include_router(accounts_router)
 app.include_router(transactions_router)
@@ -70,6 +72,8 @@ app.include_router(reconcile_router)
 app.include_router(feedback_router)
 app.include_router(audit_router)
 app.include_router(holdings_router)
+app.include_router(splits_router)
+app.include_router(tags_router)
 
 
 @app.get("/")

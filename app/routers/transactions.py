@@ -84,7 +84,7 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
                         FROM transactions WHERE account_id = %s)
                     SELECT t.id, t.account_id, a.name, t.posted, t.amount, t.description, t.payee,
                            t.category_id, c.name, t.category_manual, t.pending, t.notes, t.is_transfer,
-                           t.category_source, bal.running_balance, t.recurring, t.transfer_pair_id, t.source
+                           t.category_source, bal.running_balance, t.recurring, t.transfer_pair_id, t.source, t.has_splits
                     FROM transactions t JOIN accounts a ON t.account_id = a.id
                     LEFT JOIN categories c ON t.category_id = c.id
                     LEFT JOIN bal ON t.id = bal.id {where}
@@ -94,7 +94,7 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
             cur.execute(
                 f"""SELECT t.id, t.account_id, a.name, t.posted, t.amount, t.description, t.payee,
                            t.category_id, c.name, t.category_manual, t.pending, t.notes, t.is_transfer,
-                           t.category_source, NULL as running_balance, t.recurring, t.transfer_pair_id, t.source
+                           t.category_source, NULL as running_balance, t.recurring, t.transfer_pair_id, t.source, t.has_splits
                     FROM transactions t JOIN accounts a ON t.account_id = a.id
                     LEFT JOIN categories c ON t.category_id = c.id {where}
                     ORDER BY t.posted DESC, t.id LIMIT %s OFFSET %s""",
@@ -118,7 +118,8 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
              "running_balance": float(r[14]) if r[14] is not None else None,
              "recurring": r[15] if len(r) > 15 else False,
              "transfer_pair_id": r[16] if len(r) > 16 else None,
-             "source": r[17] if len(r) > 17 else "sync"}
+             "source": r[17] if len(r) > 17 else "sync",
+             "has_splits": r[18] if len(r) > 18 else False}
             for r in rows]}
 
 

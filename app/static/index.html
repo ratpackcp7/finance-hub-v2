@@ -660,6 +660,33 @@
     <div id="hist-table" style="max-height:500px;overflow-y:auto"></div>
   </div>
 </div>
+<!-- Split Transaction Modal -->
+<div class="modal-bg" id="modal-splits" onclick="if(event.target===this)closeModal(this.id)">
+  <div class="modal" style="width:min(650px,95vw)">
+    <div class="modal-header">
+      <h3>Split Transaction</h3>
+      <button class="modal-close" onclick="closeModal('modal-splits')">&times;</button>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
+      <div>
+        <div id="sp-txn-desc" style="font-size:.88rem;font-weight:600"></div>
+      </div>
+      <div id="sp-txn-amt" style="font-size:1.1rem;font-weight:700"></div>
+    </div>
+    <div id="sp-rows"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:.5rem">
+      <button class="btn btn-ghost btn-sm" onclick="addSplitRow()">+ Add Row</button>
+      <div id="sp-remaining" style="font-size:.82rem"></div>
+    </div>
+    <div id="sp-save-result" style="font-size:.82rem;margin-top:.5rem"></div>
+    <div class="modal-actions">
+      <button class="btn btn-danger btn-sm" onclick="removeSplits()" style="margin-right:auto">Remove Splits</button>
+      <button class="btn btn-ghost" onclick="closeModal('modal-splits')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSplits()">Save Splits</button>
+    </div>
+  </div>
+</div>
+
 <!-- Account Detail Modal -->
 <div class="modal-overlay" id="acct-detail-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:1000;justify-content:center;align-items:center;padding:1rem" onclick="if(event.target===this)this.style.display='none'">
   <div class="modal" style="max-width:650px;width:92vw;max-height:85vh;overflow-y:auto;margin:auto;background:#0f1729;border:1px solid #1e2530;border-radius:12px;padding:1.2rem;box-shadow:0 8px 32px rgba(0,0,0,.5)">
@@ -698,6 +725,7 @@
     <div class="field"><label>Payee</label><input type="text" id="mt-payee" placeholder="Override bank payee name"></div>
     <div class="field"><label>Category</label><select id="mt-category"><option value="">Uncategorized</option></select></div>
     <div class="field"><label>Notes</label><input type="text" id="mt-notes" placeholder="Add a note..."></div>
+    <div style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid #1e2530"><div style="font-size:.72rem;color:#475569;margin-bottom:.4rem">Tags</div><div id="mt-tags" style="display:flex;flex-wrap:wrap;gap:.3rem;margin-bottom:.6rem"></div></div>
     <div style="margin-top:.5rem;display:flex;flex-direction:column;gap:.4rem"><label style="display:flex;align-items:center;gap:.5rem;color:#e2e8f0;cursor:pointer"><input type="checkbox" id="mt-recurring"> Recurring charge</label><label style="display:flex;align-items:center;gap:.5rem;color:#e2e8f0;cursor:pointer"><input type="checkbox" id="mt-make-rule"> Also create a payee rule for this payee</label></div>
   </div>
   <div class="modal-actions"><button class="btn btn-danger btn-sm" id="mt-delete-btn" style="display:none;margin-right:auto" onclick="deleteManualTxn(editingTxnId)">🗑 Delete</button><button class="btn btn-ghost" onclick="closeModal('modal-txn')">Cancel</button><button class="btn btn-primary" onclick="saveTxn()">Save</button></div>
@@ -950,5 +978,7 @@
 
 <script src="/static/js/manual_entry.js"></script>
 <script src="/static/js/account_detail.js"></script>
+<script src="/static/js/splits.js"></script>
+<script src="/static/js/tags.js"></script>
 </body>
 </html>
