@@ -35,6 +35,18 @@ async function loadInsights() {
     renderDebtTracker(debt);
     renderInvestmentChart(investments);
     renderDividends(dividends);
+
+    // Holdings, activity, alerts
+    try {
+      var holdRes = await Promise.all([
+        api('/api/holdings'),
+        api('/api/holdings/activity?months=6'),
+        api('/api/holdings/alerts')
+      ]);
+      renderHoldingsTable(holdRes[0]);
+      renderActivity(holdRes[1]);
+      renderAlerts(holdRes[2]);
+    } catch (e) { console.error('Holdings error:', e); }
   } catch (e) {
     console.error('Insights error:', e);
   }
@@ -297,4 +309,111 @@ function renderDividends(data) {
     + '<td style="text-align:right;font-weight:700;color:#a855f7">' + fmt(totalDiv) + '</td></tr>';
   html += '</tbody></table></div>';
   $('ins-div-table').innerHTML = html;
+}
+
+
+// ═══════════════════════════════════════
+// 7. Portfolio Holdings Table
+// ═══════════════════════════════════════
+function renderHoldingsTable(data) {
+  var el = $('ins-holdings-table');
+  if (!data.holdings.length) {
+    el.innerHTML = '<p class="empty">No holdings tracked yet. Add them in Settings → Holdings.</p>';
+    return;
+  }
+  var html = '<div style="overflow-x:auto"><table style="font-size:.78rem"><thead><tr>'
+    + '<th>Ticker</th><th>Name</th><th style="text-align:right">Shares</th>'
+    + '<th style="text-align:right">Price</th><th style="text-align:right">Value</th>'
+    + '<th style="text-align:right">Cost Basis</th><th style="text-align:right">Gain/Loss</th>'
+    + '</tr></thead><tbody>';
+
+  data.holdings.forEach(function(h) {
+    var price = h.last_price ? fmt(h.last_price) : '—';
+    var val = h.market_value ? fmt(h.market_value) : '—';
+    var basis = h.cost_basis ? fmt(h.cost_basis) : '—';
+    var gainStr = '—', gainColor = '#64748b';
+    if (h.gain !== null) {
+      gainColor = h.gain >= 0 ? '#86efac' : '#fca5a5';
+      gainStr = fmt(h.gain) + (h.gain_pct !== null ? ' (' + h.gain_pct.toFixed(1) + '%)' : '');
+    }
+    html += '<tr><td style="font-weight:600;color:#818cf8">' + h.ticker + '</td>'
+      + '<td>' + h.name + '</td>'
+      + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + h.shares.toFixed(2) + '</td>'
+      + '<td style="text-align:right">' + price + '</td>'
+      + '<td style="text-align:right;font-weight:600">' + val + '</td>'
+      + '<td style="text-align:right;color:#64748b">' + basis + '</td>'
+      + '<td style="text-align:right;color:' + gainColor + '">' + gainStr + '</td></tr>';
+  });
+
+  html += '<tr style="border-top:2px solid #1e2530;font-weight:700"><td colspan="4">Total Portfolio</td>'
+    + '<td style="text-align:right">' + fmt(data.total_value) + '</td>'
+    + '<td style="text-align:right;color:#64748b">' + fmt(data.total_cost) + '</td>'
+    + '<td style="text-align:right;color:' + (data.total_gain >= 0 ? '#86efac' : '#fca5a5') + '">'
+    + (data.total_gain !== null ? fmt(data.total_gain) : '—') + '</td></tr>';
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
+}
+
+async function refreshHoldingPrices() {
+  try {
+    toast('Refreshing prices...', 'info');
+    var result = await api('/api/holdings/refresh-prices', { method: 'POST', body: '{}' });
+    toast(result.updated + '/' + result.tickers + ' prices updated', 'success');
+    loadInsights();
+  } catch (e) { toast('Price refresh failed', 'error'); }
+}
+
+// ═══════════════════════════════════════
+// 8. Alerts
+// ═══════════════════════════════════════
+function renderAlerts(data) {
+  var card = $('ins-alerts-card');
+  if (!data.alerts.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  var html = '';
+  data.alerts.forEach(function(a) {
+    var icon = a.severity === 'warning' ? '⚠️' : 'ℹ️';
+    var bg = a.severity === 'warning' ? '#451a03' : '#0c1929';
+    var border = a.severity === 'warning' ? '#f59e0b' : '#3b82f6';
+    html += '<div style="padding:.6rem .8rem;margin-bottom:.5rem;border-radius:6px;background:' + bg + ';border-left:3px solid ' + border + ';font-size:.8rem">'
+      + '<div style="font-weight:600">' + icon + ' ' + a.account + '</div>'
+      + '<div style="color:#94a3b8;margin-top:.2rem">' + a.message + '</div></div>';
+  });
+  $('ins-alerts').innerHTML = html;
+}
+
+// ═══════════════════════════════════════
+// 9. Investment Activity
+// ═══════════════════════════════════════
+function renderActivity(data) {
+  var el = $('ins-activity');
+  var totals = data.totals;
+  var html = '<div style="display:flex;gap:1.5rem;margin-bottom:.75rem;font-size:.82rem">'
+    + '<div><span style="color:#64748b">Dividends:</span> <span style="color:#86efac;font-weight:600">' + fmt(totals.dividend_income) + '</span></div>'
+    + '<div><span style="color:#64748b">Reinvested:</span> <span style="color:#fca5a5;font-weight:600">' + fmt(Math.abs(totals.reinvested)) + '</span></div>'
+    + '<div><span style="color:#64748b">Net retained:</span> <span style="color:#f8fafc;font-weight:600">' + fmt(totals.net) + '</span></div>'
+    + '</div>';
+
+  // Dividend summary by month/ticker
+  if (data.dividend_summary.length) {
+    html += '<div style="overflow-x:auto"><table style="font-size:.75rem"><thead><tr><th>Month</th><th>Ticker</th><th style="text-align:right">Dividends</th><th style="text-align:right">Txns</th></tr></thead><tbody>';
+    data.dividend_summary.forEach(function(ds) {
+      html += '<tr><td style="color:#64748b">' + ds.month + '</td><td style="color:#818cf8;font-weight:600">' + ds.ticker + '</td>'
+        + '<td style="text-align:right;color:#86efac">' + fmt(ds.total) + '</td>'
+        + '<td style="text-align:right;color:#64748b">' + ds.count + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+
+  // Unmatched transactions
+  if (data.unmatched.length) {
+    html += '<div style="margin-top:.75rem;padding-top:.5rem;border-top:1px solid #1e2530">'
+      + '<div style="font-size:.78rem;color:#f59e0b;font-weight:600;margin-bottom:.3rem">⚠️ Unmatched Activity (' + data.unmatched.length + ')</div>';
+    data.unmatched.slice(0, 10).forEach(function(u) {
+      html += '<div style="font-size:.72rem;color:#94a3b8;padding:.15rem 0">'
+        + u.date + ' — ' + u.payee + ' — ' + fmt(u.amount) + ' — ' + u.account_name + '</div>';
+    });
+    html += '</div>';
+  }
+  el.innerHTML = html;
 }

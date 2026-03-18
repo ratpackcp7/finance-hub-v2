@@ -53,6 +53,7 @@ from routers.csv_import import router as csv_import_router
 from routers.reconcile import router as reconcile_router
 from routers.feedback import router as feedback_router
 from routers.audit import router as audit_router
+from routers.holdings import router as holdings_router
 
 app.include_router(accounts_router)
 app.include_router(transactions_router)
@@ -68,6 +69,7 @@ app.include_router(csv_import_router)
 app.include_router(reconcile_router)
 app.include_router(feedback_router)
 app.include_router(audit_router)
+app.include_router(holdings_router)
 
 
 @app.get("/")

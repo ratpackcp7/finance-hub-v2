@@ -561,7 +561,28 @@
     <div style="height:300px"><canvas id="chart-investments"></canvas></div>
   </div>
 
-  <!-- Row 5: Dividend Income -->
+  <!-- Row 5: Portfolio Holdings -->
+  <div class="card" style="margin-bottom:1rem">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+      <div class="card-title" style="margin:0">Portfolio Holdings</div>
+      <button class="btn btn-ghost btn-sm" onclick="refreshHoldingPrices()">↻ Refresh Prices</button>
+    </div>
+    <div id="ins-holdings-table"><p class="empty">Loading...</p></div>
+  </div>
+
+  <!-- Row 6: Alerts -->
+  <div class="card" id="ins-alerts-card" style="margin-bottom:1rem;display:none">
+    <div class="card-title">Alerts & Deviations</div>
+    <div id="ins-alerts"><p class="empty">Loading...</p></div>
+  </div>
+
+  <!-- Row 7: Dividend & Reinvestment Activity -->
+  <div class="card" style="margin-bottom:1rem">
+    <div class="card-title">Investment Activity (Dividends & Reinvestments)</div>
+    <div id="ins-activity"><p class="empty">Loading...</p></div>
+  </div>
+
+  <!-- Row 8: Dividend Income -->
   <div class="card">
     <div class="card-title">Dividend Income</div>
     <div style="height:220px"><canvas id="chart-dividends"></canvas></div>
@@ -621,21 +642,21 @@
     </div>
   </div>
 </div>
-<script src="/static/js/core.js?v=1773849487"></script>
-<script src="/static/js/sync.js?v=1773849487"></script>
-<script src="/static/js/dashboard.js?v=1773849487"></script>
-<script src="/static/js/insights.js?v=1773849487"></script>
-<script src="/static/js/sankey.js?v=1773849487"></script>
-<script src="/static/js/spending.js?v=1773849487"></script>
-<script src="/static/js/transactions.js?v=1773849487"></script>
-<script src="/static/js/transfers.js?v=1773849487"></script>
-<script src="/static/js/ai_categorize.js?v=1773849487"></script>
-<script src="/static/js/rules.js?v=1773849487"></script>
-<script src="/static/js/settings.js?v=1773849487"></script>
-<script src="/static/js/subscriptions.js?v=1773849487"></script>
-<script src="/static/js/imports.js?v=1773849487"></script>
-<script src="/static/js/reconcile.js?v=1773849487"></script>
-<script src="/static/js/feedback.js?v=1773849487"></script>
+<script src="/static/js/core.js?v=1773851136"></script>
+<script src="/static/js/sync.js?v=1773851136"></script>
+<script src="/static/js/dashboard.js?v=1773851136"></script>
+<script src="/static/js/insights.js?v=1773851136"></script>
+<script src="/static/js/sankey.js?v=1773851136"></script>
+<script src="/static/js/spending.js?v=1773851136"></script>
+<script src="/static/js/transactions.js?v=1773851136"></script>
+<script src="/static/js/transfers.js?v=1773851136"></script>
+<script src="/static/js/ai_categorize.js?v=1773851136"></script>
+<script src="/static/js/rules.js?v=1773851136"></script>
+<script src="/static/js/settings.js?v=1773851136"></script>
+<script src="/static/js/subscriptions.js?v=1773851136"></script>
+<script src="/static/js/imports.js?v=1773851136"></script>
+<script src="/static/js/reconcile.js?v=1773851136"></script>
+<script src="/static/js/feedback.js?v=1773851136"></script>
 
 <!-- Feedback FAB -->
 <button class="feedback-fab" onclick="openFeedbackModal()" title="Bug report or feature request">✏️</button>

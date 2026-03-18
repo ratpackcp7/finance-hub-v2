@@ -93,6 +93,45 @@ def purge_old_payloads(conn):
     return batch_purged, txn_purged
 
 
+def refresh_holding_prices(conn):
+    """Fetch latest prices from Yahoo Finance using Ticker API."""
+    cur = conn.cursor()
+    cur.execute("SELECT DISTINCT ticker FROM holdings")
+    tickers = [r[0] for r in cur.fetchall()]
+    if not tickers:
+        return 0
+    try:
+        import yfinance as yf
+        from datetime import datetime as dt_now
+        updated = 0
+        now = dt_now.now()
+        for ticker in tickers:
+            try:
+                tk = yf.Ticker(ticker)
+                hist = tk.history(period="5d")
+                if len(hist) > 0:
+                    price = float(hist["Close"].iloc[-1])
+                    cur.execute("UPDATE holdings SET last_price = %s, last_price_date = %s WHERE ticker = %s",
+                                (price, now, ticker))
+                    updated += cur.rowcount
+            except Exception as e:
+                logger.warning("Price fetch %s: %s", ticker, e)
+        today = date.today()
+        cur.execute("""
+            INSERT INTO holding_snapshots (snapshot_date, holding_id, price, market_value)
+            SELECT %s, h.id, h.last_price, h.shares * h.last_price
+            FROM holdings h WHERE h.last_price IS NOT NULL
+            ON CONFLICT (snapshot_date, holding_id) DO UPDATE SET
+                price = EXCLUDED.price, market_value = EXCLUDED.market_value
+        """, (today,))
+        conn.commit()
+        logger.info("Price refresh: %d/%d tickers updated", updated, len(tickers))
+        return updated
+    except Exception as e:
+        logger.error("Price refresh failed: %s", e)
+        return 0
+
+
 def scheduled_sync():
     logger.info("Scheduled sync starting")
     pool = get_pool()
@@ -104,6 +143,10 @@ def scheduled_sync():
             take_balance_snapshot(conn)
         except Exception as e:
             logger.error("Balance snapshot failed: %s", e)
+        try:
+            refresh_holding_prices(conn)
+        except Exception as e:
+            logger.error("Holding price refresh failed: %s", e)
         try:
             purge_old_payloads(conn)
         except Exception as e:

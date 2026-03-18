@@ -59,7 +59,7 @@ function showPage(name){
   if(name==='spending')loadSpending();
   if(name==='transactions'){loadCategories();loadAccounts();loadTxns();}
   if(name==='rules'){loadRules();loadCategories();}
-  if(name==='settings'){loadAccountsSettings();loadCategoriesSettings();loadBudgetSettings();}
+  if(name==='settings'){loadAccountsSettings();loadCategoriesSettings();loadBudgetSettings();loadHoldingsSettings();}
   if(name==='subscriptions')loadSubscriptions();
   if(name==='imports'){loadImportsPage();loadCsvAccounts();}
   if(name==='reconcile'){loadReconAccounts();loadReconHistory();}
