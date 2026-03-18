@@ -32,7 +32,7 @@ function customConfirm(msg,onOk,okLabel,okClass){
 document.querySelectorAll('nav:first-of-type a[data-page]').forEach(a=>{a.addEventListener('click',()=>showPage(a.dataset.page));});
 
 // Pages reachable from the "More" menu (not in bottom nav)
-const MORE_PAGES = new Set(['review','rules','subscriptions','imports','reconcile','goals','bills','compare','flow','insights','history']);
+const MORE_PAGES = new Set(['merchants','review','rules','subscriptions','imports','reconcile','goals','bills','compare','flow','insights','history']);
 
 function showPage(name){
   // Close More overlay if open
@@ -63,6 +63,7 @@ function showPage(name){
   if(name==='subscriptions')loadSubscriptions();
   if(name==='imports'){loadImportsPage();loadCsvAccounts();}
   if(name==='reconcile'){loadReconAccounts();loadReconHistory();}
+  if(name==='merchants')loadMerchantsPage();
   if(name==='compare')loadComparePage();
   if(name==='review')loadReviewPage();
   if(name==='bills')loadBillsPage();

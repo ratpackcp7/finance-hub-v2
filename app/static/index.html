@@ -343,6 +343,7 @@
   <a data-page="goals" onclick="showPage('goals')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Goals</a>
   <a data-page="bills" onclick="showPage('bills')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/><line x1="9" y1="3" x2="9" y2="9"/></svg>Bills & Debt</a>
   <a data-page="reconcile" onclick="showPage('reconcile')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Reconcile</a>
+  <a data-page="merchants" onclick="showPage('merchants')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Merchants</a>
   <div class="sb-section">Settings</div>
   <a data-page="settings" onclick="showPage('settings')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Setup</a>
   <div class="sb-sync"><div class="sync-dot" id="sync-dot-sb"></div><button class="btn btn-ghost btn-sm" onclick="triggerSync()" style="font-size:.78rem">Sync Now</button></div>
@@ -532,6 +533,29 @@
       <button class="btn btn-primary btn-sm" onclick="openRuleModal()">+ Add Rule</button>
     </div>
     <table><thead><tr><th>Pattern</th><th>Normalized Payee</th><th>Category</th><th>Priority</th><th></th><th></th></tr></thead><tbody id="rules-tbody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody></table>
+  </div>
+</div>
+<div class="page" id="page-merchants">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+    <h2 style="font-size:1.1rem;font-weight:600;color:#f8fafc;margin:0">Merchants</h2>
+    <span id="merchant-count" style="font-size:.82rem;color:#64748b"></span>
+  </div>
+
+  <div class="card" style="margin-bottom:1rem">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
+      <div class="card-title" style="margin:0">Suggested Merges</div>
+      <button class="btn btn-ghost btn-sm" onclick="loadMerchantDupes()">↻ Refresh</button>
+    </div>
+    <p style="font-size:.78rem;color:#64748b;margin-bottom:.75rem">Merchants with similar names that might be duplicates. Click Merge to consolidate + create a payee rule.</p>
+    <div id="merchant-dupes"><p class="empty">Loading...</p></div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem">
+      <div class="card-title" style="margin:0">All Merchants</div>
+      <input type="search" id="merchant-search" placeholder="Search merchants..." style="width:220px;font-size:.82rem" oninput="loadMerchants(this.value)">
+    </div>
+    <div id="merchant-list"><p class="empty">Loading...</p></div>
   </div>
 </div>
 <div class="page" id="page-settings">
@@ -986,22 +1010,22 @@
     </div>
   </div>
 </div>
-<script src="/static/js/core.js?v=1773875512"></script>
-<script src="/static/js/sync.js?v=1773875512"></script>
-<script src="/static/js/dashboard.js?v=1773875512"></script>
-<script src="/static/js/history.js?v=1773875512"></script>
-<script src="/static/js/insights.js?v=1773875512"></script>
-<script src="/static/js/sankey.js?v=1773875512"></script>
-<script src="/static/js/spending.js?v=1773875512"></script>
-<script src="/static/js/transactions.js?v=1773875512"></script>
-<script src="/static/js/transfers.js?v=1773875512"></script>
-<script src="/static/js/ai_categorize.js?v=1773875512"></script>
-<script src="/static/js/rules.js?v=1773875512"></script>
-<script src="/static/js/settings.js?v=1773875512"></script>
-<script src="/static/js/subscriptions.js?v=1773875512"></script>
-<script src="/static/js/imports.js?v=1773875512"></script>
-<script src="/static/js/reconcile.js?v=1773875512"></script>
-<script src="/static/js/feedback.js?v=1773875512"></script>
+<script src="/static/js/core.js?v=1773875706"></script>
+<script src="/static/js/sync.js?v=1773875706"></script>
+<script src="/static/js/dashboard.js?v=1773875706"></script>
+<script src="/static/js/history.js?v=1773875706"></script>
+<script src="/static/js/insights.js?v=1773875706"></script>
+<script src="/static/js/sankey.js?v=1773875706"></script>
+<script src="/static/js/spending.js?v=1773875706"></script>
+<script src="/static/js/transactions.js?v=1773875706"></script>
+<script src="/static/js/transfers.js?v=1773875706"></script>
+<script src="/static/js/ai_categorize.js?v=1773875706"></script>
+<script src="/static/js/rules.js?v=1773875706"></script>
+<script src="/static/js/settings.js?v=1773875706"></script>
+<script src="/static/js/subscriptions.js?v=1773875706"></script>
+<script src="/static/js/imports.js?v=1773875706"></script>
+<script src="/static/js/reconcile.js?v=1773875706"></script>
+<script src="/static/js/feedback.js?v=1773875706"></script>
 
 <!-- Feedback FAB -->
 <!-- Account Detail Modal -->
@@ -1203,14 +1227,27 @@
   </div>
 </div>
 
-<script src="/static/js/manual_entry.js?v=1773875512"></script>
-<script src="/static/js/account_detail.js?v=1773875512"></script>
-<script src="/static/js/splits.js?v=1773875512"></script>
-<script src="/static/js/tags.js?v=1773875512"></script>
-<script src="/static/js/bills.js?v=1773875512"></script>
+<script src="/static/js/manual_entry.js?v=1773875706"></script>
+<script src="/static/js/account_detail.js?v=1773875706"></script>
+<script src="/static/js/splits.js?v=1773875706"></script>
+<script src="/static/js/tags.js?v=1773875706"></script>
+<script src="/static/js/bills.js?v=1773875706"></script>
 <script src="/static/js/goals.js"></script>
 <script src="/static/js/review.js"></script>
 <script src="/static/js/bulk.js"></script>
 <script src="/static/js/compare.js"></script>
+<script src="/static/js/merchants.js"></script>
+<div class="modal-bg" id="modal-merchant-rename" onclick="if(event.target===this)closeModal(this.id)">
+  <div class="modal" style="width:min(420px,90vw)">
+    <div class="modal-header"><h3>Rename Merchant</h3><button class="modal-close" onclick="closeModal('modal-merchant-rename')">&times;</button></div>
+    <div class="field"><label>Current Name</label><input type="text" id="mr-old-name" readonly style="opacity:.6"></div>
+    <div class="field"><label>New Name</label><input type="text" id="mr-new-name" placeholder="Clean merchant name"></div>
+    <div id="mr-result" style="font-size:.82rem;margin-top:.5rem"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-merchant-rename')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveMerchantRename()">Rename</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
