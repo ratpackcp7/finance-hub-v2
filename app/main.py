@@ -1,6 +1,6 @@
 """
-Finance Hub v2 — FastAPI application (v4.3.0)
-CSV import with auto-detect column mapping
+Finance Hub v2 — FastAPI application (v4.4.0)
+Reconciliation workflow + CSV import UI
 """
 import logging
 from contextlib import asynccontextmanager
@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):
     close_pool()
 
 
-app = FastAPI(title="Finance Hub", version="4.3.0", lifespan=lifespan)
+app = FastAPI(title="Finance Hub", version="4.4.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # ── Register routers ──
@@ -46,6 +46,7 @@ from routers.sync import router as sync_router
 from routers.imports import router as imports_router
 from routers.categorize import router as categorize_router
 from routers.csv_import import router as csv_import_router
+from routers.reconcile import router as reconcile_router
 from routers.feedback import router as feedback_router
 from routers.audit import router as audit_router
 
@@ -60,6 +61,7 @@ app.include_router(sync_router)
 app.include_router(imports_router)
 app.include_router(categorize_router)
 app.include_router(csv_import_router)
+app.include_router(reconcile_router)
 app.include_router(feedback_router)
 app.include_router(audit_router)
 
