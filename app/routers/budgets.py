@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from db import _audit, db_conn, db_put, require_valid_category
+from db import _audit, db_conn, db_put, require_valid_category, require_valid_category
 
 router = APIRouter(prefix="/api/budgets", tags=["budgets"])
 

@@ -18,6 +18,8 @@ def create_feedback(body: FeedbackCreate):
         raise HTTPException(status_code=400, detail="Message required")
     if len(body.message) > MAX_TEXT_LEN:
         raise HTTPException(status_code=400, detail=f"Message exceeds max length ({MAX_TEXT_LEN})")
+    if len(body.message) > MAX_TEXT_LEN:
+        raise HTTPException(status_code=400, detail=f"Message exceeds max length ({MAX_TEXT_LEN})")
     valid = {"bug", "feature", "feedback"}
     fb_type = body.type if body.type in valid else "feedback"
     conn = db_conn()

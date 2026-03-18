@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from db import _audit, db_conn, db_put, require_nonempty, require_valid_category
+from db import _audit, db_conn, db_put, require_nonempty, require_valid_category, require_nonempty, require_valid_category
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["rules"])
