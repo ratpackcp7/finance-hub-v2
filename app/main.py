@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -21,13 +21,17 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    conn = db_conn()
     try:
-        conn = db_conn()
         logger.info("DB pool ready")
         run_migrations(conn)
+        app.state.ready = True
+    except Exception:
+        app.state.ready = False
+        logger.exception("Startup failed")
+        raise
+    finally:
         db_put(conn)
-    except Exception as e:
-        logger.error("Startup failed: %s", e)
     yield
     close_pool()
 
@@ -73,4 +77,6 @@ def index():
 
 @app.get("/health")
 def health():
+    if not getattr(app.state, "ready", False):
+        raise HTTPException(status_code=503, detail="not ready")
     return {"status": "ok", "ts": datetime.utcnow().isoformat()}

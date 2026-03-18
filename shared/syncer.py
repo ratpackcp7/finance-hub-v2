@@ -8,7 +8,7 @@ Flow:
   3. Create import_batch record + store raw payload
   4. Upsert accounts
   5. Upsert transactions (skip category_id if category_manual=True)
-     - Tag new txns with import_batch_id
+     - Tag new txns with import_batch_id + first_import_batch_id
      - Detect near-duplicates and flag for review
   6. Apply payee rules to any uncategorized transactions
   7. Close import_batch + sync_log rows
@@ -140,8 +140,13 @@ def run_sync(conn: psycopg2.extensions.connection, start_date: Optional[date] = 
                 cur.execute("SELECT id, category_manual FROM transactions WHERE id = %s", (txn_id,))
                 existing = cur.fetchone()
                 if existing is None:
-                    cur.execute("INSERT INTO transactions (id, account_id, posted, amount, description, pending, raw, import_batch_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                        (txn_id, acct_id, posted, amount, description, pending, json.dumps(txn), batch_id))
+                    cur.execute(
+                        """INSERT INTO transactions
+                           (id, account_id, posted, amount, description, pending, raw,
+                            import_batch_id, first_import_batch_id, last_seen_batch_id)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                        (txn_id, acct_id, posted, amount, description, pending, json.dumps(txn),
+                         batch_id, batch_id, batch_id))
                     new_txn_ids.append(txn_id); txns_added += 1
                     if detect_near_dupes(cur, txn_id, acct_id, amount, posted, batch_id): dupes_flagged += 1
                 else:
@@ -153,11 +158,12 @@ def run_sync(conn: psycopg2.extensions.connection, start_date: Optional[date] = 
                              pending         = %s,
                              account_id      = %s,
                              raw             = %s,
-                             import_batch_id = %s,
+                             import_batch_id = COALESCE(import_batch_id, %s),
+                             last_seen_batch_id = %s,
                              updated_at      = NOW()
                            WHERE id = %s""",
                         (posted, amount, description, pending, acct_id,
-                         json.dumps(txn), batch_id, txn_id))
+                         json.dumps(txn), batch_id, batch_id, txn_id))
                     txns_updated += 1
         conn.commit(); categorized = apply_payee_rules(cur); conn.commit()
         logger.info("Sync complete: batch=%d accounts=%d added=%d updated=%d dupes_flagged=%d auto-categorized=%d", batch_id, accounts_seen, txns_added, txns_updated, dupes_flagged, categorized)

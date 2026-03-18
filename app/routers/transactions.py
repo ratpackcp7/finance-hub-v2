@@ -13,12 +13,27 @@ from db import MAX_TEXT_LEN, _audit, _csv_safe, db_conn, db_put, require_valid_c
 router = APIRouter(prefix="/api", tags=["transactions"])
 
 
+def _parse_category_filter(raw: Optional[str]) -> tuple[Optional[int], bool]:
+    """Parse category_id query param: None/'' = no filter, 'none' = uncategorized, int = specific."""
+    if raw in (None, ""):
+        return None, False
+    if raw == "none":
+        return None, True
+    try:
+        return int(raw), False
+    except ValueError:
+        raise HTTPException(status_code=400, detail="category_id must be an integer or 'none'")
+
+
 def _txn_filters(account_id=None, category_id=None, start_date=None, end_date=None,
-                 search=None, pending=None, exclude_transfers=False, txn_type=None):
+                 search=None, pending=None, exclude_transfers=False, txn_type=None,
+                 uncategorized=False):
     filters, params = [], []
     if account_id:
         filters.append("t.account_id = %s"); params.append(account_id)
-    if category_id is not None:
+    if uncategorized:
+        filters.append("t.category_id IS NULL")
+    elif category_id is not None:
         filters.append("t.category_id = %s"); params.append(category_id)
     if start_date:
         filters.append("t.posted >= %s"); params.append(start_date)
@@ -40,13 +55,17 @@ def _txn_filters(account_id=None, category_id=None, start_date=None, end_date=No
 
 @router.get("/transactions")
 def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str] = None,
-                     category_id: Optional[int] = None, start_date: Optional[date] = None,
+                     category_id: Optional[str] = None, start_date: Optional[date] = None,
                      end_date: Optional[date] = None, search: Optional[str] = None,
                      pending: Optional[bool] = None, txn_type: Optional[str] = None):
     conn = db_conn()
     try:
         cur = conn.cursor()
-        filters, params = _txn_filters(account_id, category_id, start_date, end_date, search, pending, txn_type=txn_type)
+        parsed_category_id, uncategorized = _parse_category_filter(category_id)
+        filters, params = _txn_filters(
+            account_id, parsed_category_id, start_date, end_date, search, pending,
+            txn_type=txn_type, uncategorized=uncategorized
+        )
         where = ("WHERE " + " AND ".join(filters)) if filters else ""
         if account_id:
             cur.execute(
@@ -88,13 +107,17 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
 
 
 @router.get("/transactions/export")
-def export_transactions(account_id: Optional[str] = None, category_id: Optional[int] = None,
+def export_transactions(account_id: Optional[str] = None, category_id: Optional[str] = None,
                         start_date: Optional[date] = None, end_date: Optional[date] = None,
                         search: Optional[str] = None):
     conn = db_conn()
     try:
         cur = conn.cursor()
-        filters, params = _txn_filters(account_id, category_id, start_date, end_date, search)
+        parsed_category_id, uncategorized = _parse_category_filter(category_id)
+        filters, params = _txn_filters(
+            account_id, parsed_category_id, start_date, end_date, search,
+            uncategorized=uncategorized
+        )
         where = ("WHERE " + " AND ".join(filters)) if filters else ""
         cur.execute(
             f"""SELECT t.posted, COALESCE(t.payee, t.description, ''), t.description, a.name,
@@ -137,10 +160,13 @@ def patch_transaction(txn_id: str, body: TxnPatch):
             raise HTTPException(status_code=404, detail="Transaction not found")
         old_cat, old_payee, old_notes = old
         updates, params = [], []
-        if body.category_id is not None:
-            require_valid_category(cur, body.category_id)
-            updates += ["category_id = %s", "category_manual = TRUE", "category_source = 'user'"]
-            params.append(body.category_id)
+        if "category_id" in body.model_fields_set:
+            if body.category_id is None:
+                updates += ["category_id = NULL", "category_manual = FALSE", "category_source = NULL"]
+            else:
+                require_valid_category(cur, body.category_id)
+                updates += ["category_id = %s", "category_manual = TRUE", "category_source = 'user'"]
+                params.append(body.category_id)
             _audit(cur, "transaction", txn_id, "update", source="user", field_name="category_id",
                    old_value=old_cat, new_value=body.category_id)
         if body.payee is not None:

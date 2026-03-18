@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from db import _audit, db_conn, db_put, require_nonempty, require_valid_category, require_nonempty, require_valid_category
+from db import _audit, db_conn, db_put, require_nonempty, require_valid_category
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["rules"])
@@ -47,8 +47,8 @@ def create_payee_rule(body: PayeeRuleCreate):
         if existing:
             cur.execute(
                 "UPDATE payee_rules SET category_id = COALESCE(%s, category_id), "
-                "payee_name = COALESCE(%s, payee_name) WHERE id = %s",
-                (body.category_id, body.payee_name, existing[0]))
+                "payee_name = COALESCE(%s, payee_name), priority = %s WHERE id = %s",
+                (body.category_id, body.payee_name, body.priority, existing[0]))
             new_id = existing[0]
         else:
             cur.execute(
@@ -57,7 +57,11 @@ def create_payee_rule(body: PayeeRuleCreate):
                 (pattern, body.payee_name, body.category_id, body.priority))
             new_id = cur.fetchone()[0]
         cur.execute(
-            """UPDATE transactions SET category_id = %s, payee = COALESCE(%s, payee), updated_at = NOW()
+            """UPDATE transactions
+               SET category_id = %s,
+                   payee = COALESCE(%s, payee),
+                   category_source = 'rule',
+                   updated_at = NOW()
                WHERE category_id IS NULL AND category_manual = FALSE
                AND (lower(description) LIKE %s OR lower(COALESCE(payee,'')) LIKE %s)""",
             (body.category_id, body.payee_name, f"%{pattern}%", f"%{pattern}%"))
