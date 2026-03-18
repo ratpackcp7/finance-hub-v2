@@ -75,9 +75,11 @@ function setDonutRange(key, btn) {
 
 function renderDonut(catSpend) {
   var topCats = catSpend.filter(function(c) { return c.category !== 'Uncategorized'; }).slice(0, 10);
+  window._donutCats = topCats;
   var donutCtx = $('chart-donut').getContext('2d');
   if (donutChart) donutChart.destroy();
   if (!topCats.length) { return; }
+  $('chart-donut').style.cursor = 'pointer';
   donutChart = new Chart(donutCtx, {
     type: 'doughnut',
     data: {
@@ -91,6 +93,20 @@ function renderDonut(catSpend) {
     },
     options: {
       responsive: true, maintainAspectRatio: false,
+      onClick: function(evt, elements) {
+        if (!elements.length) return;
+        var idx = elements[0].index;
+        var cat = window._donutCats[idx];
+        if (!cat) return;
+        // Find category ID from the loaded categories list
+        var catObj = (typeof categories !== 'undefined' ? categories : []).find(function(c) { return c.name === cat.category; });
+        var catId = catObj ? catObj.id : null;
+        if (!catId) return;
+        // Drill down to transactions with the donut's current date range
+        var opts = { category: catId };
+        if (_donutStart) { opts.from = _donutStart; opts.to = _donutEnd; }
+        drillDown(opts);
+      },
       plugins: {
         legend: {
           position: window.innerWidth < 768 ? 'bottom' : 'right',
