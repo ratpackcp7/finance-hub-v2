@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import APIRouter
 
 from db import db_conn, db_put
+from filters import spending_filters, SQL_CASE_INCOME, SQL_CASE_SPENDING
 
 router = APIRouter(prefix="/api/spending", tags=["spending"])
 
@@ -16,8 +17,7 @@ def spending_by_category(start_date: Optional[date] = None, end_date: Optional[d
     conn = db_conn()
     try:
         cur = conn.cursor()
-        f = ["t.amount < 0", "t.pending = FALSE", "t.is_transfer = FALSE",
-             "COALESCE(c.name, '') NOT IN ('Credit Card Pay', 'Transfer')"]; p = []
+        f = spending_filters(); p = []
         if start_date: f.append("t.posted >= %s"); p.append(start_date)
         if end_date: f.append("t.posted <= %s"); p.append(end_date)
         if account_id: f.append("t.account_id = %s"); p.append(account_id)
@@ -38,13 +38,13 @@ def spending_by_payee(start_date: Optional[date] = None, end_date: Optional[date
     conn = db_conn()
     try:
         cur = conn.cursor()
-        f = ["amount < 0", "pending = FALSE", "is_transfer = FALSE"]; p = []
+        f = spending_filters(); p = []
         if start_date: f.append("posted >= %s"); p.append(start_date)
         if end_date: f.append("posted <= %s"); p.append(end_date)
         if account_id: f.append("account_id = %s"); p.append(account_id)
         cur.execute(
-            f"SELECT COALESCE(payee, description, 'Unknown'), SUM(ABS(amount)), COUNT(*) "
-            f"FROM transactions WHERE {' AND '.join(f)} GROUP BY 1 ORDER BY 2 DESC LIMIT %s", p + [limit])
+            f"SELECT COALESCE(t.payee, t.description, 'Unknown'), SUM(ABS(t.amount)), COUNT(*) "
+            f"FROM transactions t LEFT JOIN categories c ON t.category_id = c.id WHERE {' AND '.join(f)} GROUP BY 1 ORDER BY 2 DESC LIMIT %s", p + [limit])
         rows = cur.fetchall()
     finally:
         db_put(conn)
@@ -62,8 +62,8 @@ def spending_over_time(months: int = 6, account_id: Optional[str] = None):
         # Spending: only count negative txns NOT in income categories and NOT CC Pay
         cur.execute(
             f"SELECT TO_CHAR(t.posted, 'YYYY-MM'), "
-            f"SUM(CASE WHEN t.amount < 0 AND COALESCE(c.name,'') NOT IN ('Credit Card Pay','Transfer') THEN ABS(t.amount) ELSE 0 END), "
-            f"SUM(CASE WHEN t.amount > 0 AND COALESCE(c.is_income, FALSE) = TRUE THEN t.amount ELSE 0 END) "
+            f"SUM({SQL_CASE_SPENDING}), "
+            f"SUM({SQL_CASE_INCOME}) "
             f"FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
             f"WHERE {' AND '.join(f)} GROUP BY 1 ORDER BY 1 DESC LIMIT %s", p + [months])
         rows = cur.fetchall()
@@ -90,6 +90,7 @@ def spending_deltas(start_date: Optional[date] = None, end_date: Optional[date] 
             "SELECT COALESCE(c.name, 'Uncategorized'), c.color, SUM(ABS(t.amount)) "
             "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
             "WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE "
+            "AND COALESCE(c.name, '') NOT IN ('Credit Card Pay', 'Transfer') "
             "AND t.posted >= %s AND t.posted <= %s GROUP BY c.name, c.color",
             (start_date, end_date))
         current = {r[0]: {"color": r[1] or "#475569", "total": float(r[2])} for r in cur.fetchall()}
@@ -97,6 +98,7 @@ def spending_deltas(start_date: Optional[date] = None, end_date: Optional[date] 
             "SELECT COALESCE(c.name, 'Uncategorized'), SUM(ABS(t.amount)) "
             "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
             "WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE "
+            "AND COALESCE(c.name, '') NOT IN ('Credit Card Pay', 'Transfer') "
             "AND t.posted >= %s AND t.posted <= %s GROUP BY c.name",
             (ps, pe))
         prior = {r[0]: float(r[1]) for r in cur.fetchall()}
@@ -165,9 +167,11 @@ def detect_subscriptions(min_months: int = 3, amount_tolerance_pct: float = 15):
     try:
         cur = conn.cursor()
         cur.execute(
-            "SELECT COALESCE(payee, description), posted, amount "
-            "FROM transactions WHERE amount < 0 AND pending = FALSE AND is_transfer = FALSE "
-            "AND COALESCE(payee, description) IS NOT NULL ORDER BY 1, posted")
+            "SELECT COALESCE(t.payee, t.description), t.posted, t.amount "
+            "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
+            "WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE "
+            "AND COALESCE(c.name, '') NOT IN ('Credit Card Pay', 'Transfer') "
+            "AND COALESCE(t.payee, t.description) IS NOT NULL ORDER BY 1, t.posted")
         rows = cur.fetchall()
     finally:
         db_put(conn)
@@ -275,8 +279,9 @@ def budget_vs_actual(month: Optional[str] = None):
         # Get actual spending per category for the month
         cur.execute(
             "SELECT t.category_id, SUM(ABS(t.amount)) "
-            "FROM transactions t "
+            "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
             "WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE "
+            "AND COALESCE(c.name, '') NOT IN ('Credit Card Pay', 'Transfer') "
             "AND t.posted >= %s AND t.posted <= %s "
             "GROUP BY t.category_id", (start, end))
         actuals = dict(cur.fetchall())
