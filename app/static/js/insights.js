@@ -1,7 +1,7 @@
 // Finance Hub — insights.js
 // Financial Insights: NW breakdown, savings rate, cash flow, debt, investments, dividends
 
-var _insNwPie = null, _insDebtChart = null, _insInvChart = null, _insDivChart = null;
+var _insNwPie = null, _insDebtChart = null, _insInvChart = null, _insDivChart = null, _insCfChart = null;
 
 var TYPE_COLORS = {
   checking: '#3b82f6', savings: '#22c55e', credit: '#ef4444',
@@ -33,6 +33,7 @@ async function loadInsights() {
     var investments = results[3], dividends = results[4];
 
     renderSavingsRate(monthly);
+    renderCashFlowChart(monthly);
     renderCashFlow(monthly);
     renderNwBreakdown(nwBreakdown);
     renderDebtTracker(debt);
@@ -84,6 +85,40 @@ function renderSavingsRate(monthly) {
 // ═══════════════════════════════════════
 // 2. Monthly Cash Flow
 // ═══════════════════════════════════════
+function renderCashFlowChart(monthly) {
+  var ctx = $('chart-cashflow-trend');
+  if (!ctx) return;
+  if (_insCfChart) _insCfChart.destroy();
+  if (!monthly.length) return;
+  var rev = monthly.slice().reverse();
+  var labels = rev.map(function(m) { return m.month; });
+  var surplus = rev.map(function(m) { return m.income - m.spending; });
+  _insCfChart = new Chart(ctx.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Monthly Surplus/Deficit',
+        data: surplus,
+        backgroundColor: surplus.map(function(v) { return v >= 0 ? '#22c55e66' : '#ef444466'; }),
+        borderColor: surplus.map(function(v) { return v >= 0 ? '#22c55e' : '#ef4444'; }),
+        borderWidth: 1,
+        borderRadius: 4
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: function(ctx) { return (ctx.raw >= 0 ? 'Surplus: ' : 'Deficit: ') + fmt(ctx.raw); } } }
+      },
+      scales: {
+        x: { grid: { color: '#1e2530' }, ticks: { color: '#64748b', font: { size: 10 } } },
+        y: { grid: { color: '#1e2530' }, ticks: { color: '#64748b', font: { size: 10 }, callback: function(v) { return fmt(v); } } }
+      }
+    }
+  });
+}
 function renderCashFlow(monthly) {
   var el = $('ins-cashflow');
   if (!monthly.length) { el.innerHTML = '<p class="empty">No data</p>'; return; }

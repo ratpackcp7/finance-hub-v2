@@ -553,6 +553,7 @@
     </div>
     <div class="card">
       <div class="card-title">Monthly Cash Flow</div>
+      <div style="height:180px;margin-bottom:.75rem"><canvas id="chart-cashflow-trend"></canvas></div>
       <div id="ins-cashflow"><p class="empty">Loading...</p></div>
     </div>
   </div>
@@ -677,6 +678,7 @@
 <!-- Modals -->
 <div class="modal-bg" id="modal-txn"><div class="modal">
   <div class="modal-header"><h3>Transaction Details</h3><button class="modal-close" onclick="closeModal('modal-txn')">✕</button></div>
+  <div id="mt-pair-info"></div>
   <div id="mt-header" style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1rem;gap:.75rem">
     <div>
       <div id="mt-desc-display" style="font-size:.95rem;font-weight:600;color:#f8fafc;margin-bottom:.25rem"></div>
@@ -747,6 +749,59 @@
 <script src="/static/js/feedback.js?v=1773861608"></script>
 
 <!-- Feedback FAB -->
+<!-- Account Detail Modal -->
+<div class="modal-bg" id="modal-account-detail" onclick="if(event.target===this)closeModal(this.id)">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <h3 id="ad-title"></h3>
+        <div id="ad-subtitle" style="font-size:.75rem;color:#475569"></div>
+      </div>
+      <button class="modal-close" onclick="closeModal('modal-account-detail')">&times;</button>
+    </div>
+    <div style="margin-bottom:1rem">
+      <div style="font-size:.72rem;color:#475569;margin-bottom:.2rem">Current Balance</div>
+      <div id="ad-balance" style="font-size:1.2rem;font-weight:700"></div>
+    </div>
+
+    <div id="ad-cc-section" style="display:none">
+      <div style="font-size:.75rem;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.6rem;border-bottom:1px solid #1e2530;padding-bottom:.4rem">Credit Card Details</div>
+      <div id="ad-utilization" style="display:none;margin-bottom:.75rem"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
+        <div class="field"><label>Due Day (1-31)</label><input type="number" id="ad-due-day" min="1" max="31" placeholder="e.g. 15"></div>
+        <div class="field"><label>Min Payment ($)</label><input type="number" id="ad-min-payment" step="0.01" placeholder="25.00"></div>
+        <div class="field"><label>APR (%)</label><input type="number" id="ad-apr" step="0.01" placeholder="24.99"></div>
+        <div class="field"><label>Credit Limit ($)</label><input type="number" id="ad-credit-limit" step="0.01" placeholder="5000.00"></div>
+      </div>
+      <div class="field" style="margin-top:.3rem">
+        <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer">
+          <input type="checkbox" id="ad-autopay"> Autopay enabled
+        </label>
+      </div>
+    </div>
+
+    <div id="ad-loan-section" style="display:none">
+      <div style="font-size:.75rem;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.6rem;border-bottom:1px solid #1e2530;padding-bottom:.4rem">Loan Details</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
+        <div class="field"><label>Interest Rate (%)</label><input type="number" id="ad-loan-rate" step="0.01" placeholder="5.25"></div>
+        <div class="field"><label>Term (months)</label><input type="number" id="ad-loan-term" placeholder="60"></div>
+        <div class="field"><label>Monthly Payment ($)</label><input type="number" id="ad-loan-payment" step="0.01" placeholder="350.00"></div>
+        <div class="field"><label>Maturity Date</label><input type="date" id="ad-loan-maturity"></div>
+      </div>
+    </div>
+
+    <div id="ad-no-meta" style="display:none">
+      <p style="font-size:.82rem;color:#475569;padding:1rem 0">No additional metadata fields for this account type. Credit card and loan accounts have editable details.</p>
+    </div>
+
+    <div id="ad-save-result" style="font-size:.82rem;margin-top:.5rem"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-account-detail')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAccountDetail()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- Manual Transaction Entry Modal -->
 <div class="modal-bg" id="modal-manual-entry" onclick="if(event.target===this)closeModal(this.id)">
   <div class="modal">
@@ -832,6 +887,53 @@
 
 
 
+
+<!-- Account Detail Modal -->
+<div class="modal-bg" id="modal-acct-detail" onclick="if(event.target===this)closeModal(this.id)">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <h3 id="ad-name"></h3>
+        <div style="font-size:.75rem;color:#64748b"><span id="ad-org"></span> · <span class="badge" style="background:#1e2530;color:#94a3b8" id="ad-type-badge"></span></div>
+      </div>
+      <button class="modal-close" onclick="closeModal('modal-acct-detail')">&times;</button>
+    </div>
+    <div style="font-size:1.3rem;font-weight:700;margin-bottom:1rem" id="ad-balance"></div>
+
+    <!-- Credit Card Section -->
+    <div id="ad-cc-section" style="display:none">
+      <div class="card-title" style="margin-top:.5rem">Credit Card Details</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
+        <div class="field"><label>Due Day (1-31)</label><input type="number" id="ad-due-day" min="1" max="31" placeholder="e.g. 15"></div>
+        <div class="field"><label>Minimum Payment</label><input type="number" id="ad-min-payment" step="0.01" placeholder="0.00"></div>
+        <div class="field"><label>APR %</label><input type="number" id="ad-apr" step="0.01" placeholder="e.g. 24.99"></div>
+        <div class="field"><label>Credit Limit</label><input type="number" id="ad-credit-limit" step="1" placeholder="e.g. 10000"></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.6rem">
+        <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;margin:0"><input type="checkbox" id="ad-autopay"> Autopay enabled</label>
+        <span id="ad-utilization" style="margin-left:auto;font-size:.78rem;font-weight:600"></span>
+      </div>
+    </div>
+
+    <!-- Loan Section -->
+    <div id="ad-loan-section" style="display:none">
+      <div class="card-title" style="margin-top:.5rem">Loan Details</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
+        <div class="field"><label>Interest Rate %</label><input type="number" id="ad-loan-rate" step="0.01" placeholder="e.g. 5.25"></div>
+        <div class="field"><label>Term (months)</label><input type="number" id="ad-loan-term" placeholder="e.g. 60"></div>
+        <div class="field"><label>Monthly Payment</label><input type="number" id="ad-loan-payment" step="0.01" placeholder="0.00"></div>
+        <div class="field"><label>Maturity Date</label><input type="date" id="ad-loan-maturity"></div>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <div id="ad-save-msg" style="margin-right:auto;font-size:.8rem"></div>
+      <button class="btn btn-ghost" onclick="closeModal('modal-acct-detail')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAcctDetail()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast container -->
 <div class="toast-container" id="toast-container"></div>
 
@@ -847,5 +949,6 @@
 </div>
 
 <script src="/static/js/manual_entry.js"></script>
+<script src="/static/js/account_detail.js"></script>
 </body>
 </html>
