@@ -15,12 +15,36 @@ router = APIRouter(prefix="/api/sync", tags=["sync"])
 _sync_running = False
 
 
+def _take_snapshot_after_sync(conn):
+    """Record current account balances — mirrors worker behavior."""
+    cur = conn.cursor()
+    today = date.today()
+    cur.execute("""
+        INSERT INTO balance_snapshots (snapshot_date, account_id, account_name, account_type, balance)
+        SELECT %s, id, name, COALESCE(account_type, 'checking'), balance
+        FROM accounts WHERE hidden = FALSE AND balance IS NOT NULL
+        ON CONFLICT (snapshot_date, account_id) DO UPDATE SET
+            balance = EXCLUDED.balance,
+            account_name = EXCLUDED.account_name,
+            account_type = EXCLUDED.account_type
+    """, (today,))
+    count = cur.rowcount
+    conn.commit()
+    logger.info("Balance snapshot: %d accounts for %s", count, today)
+    return count
+
+
 def _do_sync(start_date: Optional[date] = None):
     global _sync_running
     _sync_running = True
     conn = db_conn()
     try:
-        run_sync(conn, start_date)
+        result = run_sync(conn, start_date)
+        if result.get("status") == "ok":
+            try:
+                _take_snapshot_after_sync(conn)
+            except Exception as e:
+                logger.error("Balance snapshot failed after manual sync: %s", e)
     except Exception as e:
         logger.error("Manual sync failed: %s", e)
     finally:

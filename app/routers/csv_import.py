@@ -4,6 +4,7 @@ Supports auto-detection of known bank CSV formats (Chase, Discover, Citi)
 via header matching against saved csv_mappings presets.
 """
 import csv
+import hashlib
 import io
 import json
 import logging
@@ -63,15 +64,6 @@ def _normalize_headers(headers: list[str]) -> str:
 def _detect_mapping(headers: list[str], cur) -> Optional[dict]:
     """Try to match CSV headers against known csv_mappings presets."""
     sig = _normalize_headers(headers)
-    cur.execute(
-        "SELECT id, name, institution, mapping, sign_flip, date_format, notes "
-        "FROM csv_mappings ORDER BY is_preset DESC, id")
-    for row in cur.fetchall():
-        preset_sig = row[3] if isinstance(row[3], str) else None
-        # mapping is JSONB, header_signature is separate column
-        pass
-
-    # Re-query with header_signature
     cur.execute(
         "SELECT id, name, institution, header_signature, mapping, sign_flip, date_format, notes "
         "FROM csv_mappings ORDER BY is_preset DESC, id")
@@ -331,10 +323,9 @@ async def csv_apply(file: UploadFile = File(...), config: str = Form(...)):
                 skipped += 1
                 continue
 
-            # Generate a deterministic ID for CSV imports
-            import hashlib
+            # Generate content-based deterministic ID (no row index — order-independent)
             txn_id = "csv_" + hashlib.sha256(
-                f"{account_id}:{date_val}:{amount}:{description}:{i}".encode()
+                f"{account_id}:{date_val}:{amount:.2f}:{description}".encode()
             ).hexdigest()[:24]
 
             # Check if this generated ID already exists
