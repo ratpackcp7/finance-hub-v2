@@ -134,3 +134,13 @@ async function loadAccounts(){accounts=await api('/api/accounts');const opts='<o
 
 // ── Boot (no forward refs — loadCategories defined above) ──
 loadCategories();
+// Sync sidebar active state to current page on load
+(function(){
+  var active=document.querySelector('.page.active');
+  if(active){
+    var name=active.id.replace('page-','');
+    document.querySelectorAll('.sidebar a[data-page]').forEach(function(a){
+      a.classList.toggle('active',a.dataset.page===name);
+    });
+  }
+})();

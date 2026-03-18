@@ -29,10 +29,11 @@ function openTxnModal(id){
   $('mt-category').value=t.category_id||'';
   $('mt-notes').value=t.notes||'';
   $('mt-make-rule').checked=false;
+  $('mt-recurring').checked=!!t.recurring;
   openModal('modal-txn');
 }
 async function saveTxn(){
-  const body={payee:$('mt-payee').value||null,category_id:$('mt-category').value?parseInt($('mt-category').value):null,notes:$('mt-notes').value||null};
+  const body={payee:$('mt-payee').value||null,category_id:$('mt-category').value?parseInt($('mt-category').value):null,notes:$('mt-notes').value||null,recurring:$('mt-recurring').checked};
   await api('/api/transactions/'+editingTxnId,{method:'PATCH',body:JSON.stringify(body)});
   const t=_txnList.find(x=>x.id===editingTxnId);
   const wantTransfer=$('mt-is-transfer').checked;

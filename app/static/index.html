@@ -376,7 +376,7 @@
     <input type="date" id="sp-from" onchange="loadSpending()"><span style="color:#475569;font-size:.8rem">to</span><input type="date" id="sp-to" onchange="loadSpending()">
   </div>
   <div class="grid-2">
-    <div class="card"><div class="card-title">By Category</div><div id="cat-bars"><p class="empty">Loading...</p></div></div>
+    <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem"><div class="card-title" style="margin:0">Spending Breakdown</div><div style="display:flex;gap:.3rem"><button class="quick-btn active" id="sp-view-cat" onclick="setSpendView('category',this)">By Category</button><button class="quick-btn" id="sp-view-grp" onclick="setSpendView('group',this)">By Group</button></div></div><div id="cat-bars"><p class="empty">Loading...</p></div></div>
     <div class="card"><div class="card-title">Top Retailers / Payees</div><div id="payee-bars"><p class="empty">Loading...</p></div></div>
   </div>
   <div class="card" id="delta-card" style="display:none"><div class="card-title">Month-over-Month Change</div><div id="delta-summary" style="font-size:.85rem;margin-bottom:.75rem"></div><div id="delta-bars"></div></div>
@@ -518,7 +518,7 @@
     <div class="field"><label>Payee</label><input type="text" id="mt-payee" placeholder="Override bank payee name"></div>
     <div class="field"><label>Category</label><select id="mt-category"><option value="">Uncategorized</option></select></div>
     <div class="field"><label>Notes</label><input type="text" id="mt-notes" placeholder="Add a note..."></div>
-    <div style="margin-top:.5rem"><label style="display:flex;align-items:center;gap:.5rem;color:#e2e8f0;cursor:pointer"><input type="checkbox" id="mt-make-rule"> Also create a payee rule for this payee</label></div>
+    <div style="margin-top:.5rem;display:flex;flex-direction:column;gap:.4rem"><label style="display:flex;align-items:center;gap:.5rem;color:#e2e8f0;cursor:pointer"><input type="checkbox" id="mt-recurring"> Recurring charge</label><label style="display:flex;align-items:center;gap:.5rem;color:#e2e8f0;cursor:pointer"><input type="checkbox" id="mt-make-rule"> Also create a payee rule for this payee</label></div>
   </div>
   <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('modal-txn')">Cancel</button><button class="btn btn-primary" onclick="saveTxn()">Save</button></div>
 </div></div>
@@ -548,20 +548,20 @@
     </div>
   </div>
 </div>
-<script src="/static/js/core.js?v=1773842082"></script>
-<script src="/static/js/sync.js?v=1773842082"></script>
-<script src="/static/js/dashboard.js?v=1773842082"></script>
-<script src="/static/js/sankey.js?v=1773842082"></script>
-<script src="/static/js/spending.js?v=1773842082"></script>
-<script src="/static/js/transactions.js?v=1773842082"></script>
-<script src="/static/js/transfers.js?v=1773842082"></script>
-<script src="/static/js/ai_categorize.js?v=1773842082"></script>
-<script src="/static/js/rules.js?v=1773842082"></script>
-<script src="/static/js/settings.js?v=1773842082"></script>
-<script src="/static/js/subscriptions.js?v=1773842082"></script>
-<script src="/static/js/imports.js?v=1773842082"></script>
-<script src="/static/js/reconcile.js?v=1773842082"></script>
-<script src="/static/js/feedback.js?v=1773842082"></script>
+<script src="/static/js/core.js?v=1773843224"></script>
+<script src="/static/js/sync.js?v=1773843224"></script>
+<script src="/static/js/dashboard.js?v=1773843224"></script>
+<script src="/static/js/sankey.js?v=1773843224"></script>
+<script src="/static/js/spending.js?v=1773843224"></script>
+<script src="/static/js/transactions.js?v=1773843224"></script>
+<script src="/static/js/transfers.js?v=1773843224"></script>
+<script src="/static/js/ai_categorize.js?v=1773843224"></script>
+<script src="/static/js/rules.js?v=1773843224"></script>
+<script src="/static/js/settings.js?v=1773843224"></script>
+<script src="/static/js/subscriptions.js?v=1773843224"></script>
+<script src="/static/js/imports.js?v=1773843224"></script>
+<script src="/static/js/reconcile.js?v=1773843224"></script>
+<script src="/static/js/feedback.js?v=1773843224"></script>
 
 <!-- Feedback FAB -->
 <button class="feedback-fab" onclick="openFeedbackModal()" title="Bug report or feature request">✏️</button>
