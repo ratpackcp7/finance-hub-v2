@@ -188,10 +188,22 @@ def debt_payoff_scenarios(extra_monthly: float = 0, strategy: str = "avalanche")
 
     if monthly_budget <= 0:
         return {
-            "debts": debts,
+            "debts": [{
+                "id": d["id"], "name": d["name"], "type": d["type"],
+                "starting_balance": d["balance"], "rate": d["rate"],
+                "min_payment": d["min_payment"],
+                "paid_off_month": None, "paid_off_date": None,
+            } for d in debts],
             "strategy": strategy,
+            "extra_monthly": extra_monthly,
             "message": "No payment data — set minimum payments or loan payments on your accounts",
             "total_balance": total_balance,
+            "total_min_payment": 0,
+            "total_interest": 0,
+            "months_to_payoff": None,
+            "debt_free_date": None,
+            "baseline_months": None,
+            "months_saved": None,
         }
 
     # Simulate month by month
@@ -241,6 +253,7 @@ def debt_payoff_scenarios(extra_monthly: float = 0, strategy: str = "avalanche")
     results = []
     for i, d in enumerate(debts):
         results.append({
+            "id": d["id"],
             "name": d["name"],
             "type": d["type"],
             "starting_balance": d["balance"],

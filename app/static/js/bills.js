@@ -31,7 +31,10 @@ async function loadUpcomingBills() {
       var icon = b.source === 'account' ? '\uD83C\uDFE6' : '\u21BB';
       var autopayBadge = b.autopay ? '<span class="badge" style="background:#14532d;color:#86efac;font-size:.6rem;margin-left:.3rem">autopay</span>' : '';
 
-      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.7rem .8rem;border:1px solid ' + borderColor + ';border-radius:8px;margin-bottom:.5rem;background:#0f1117">'
+      var clickAction = b.account_id
+        ? 'onclick="showPage(\'transactions\');$(\'t-account\').value=\'' + b.account_id + '\';loadTxns()"'
+        : '';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.7rem .8rem;border:1px solid ' + borderColor + ';border-radius:8px;margin-bottom:.5rem;background:#0f1117;cursor:pointer" ' + clickAction + '>'
         + '<div>'
         + '<div style="font-size:.85rem;color:#e2e8f0">' + icon + ' ' + esc(b.name) + autopayBadge + '</div>'
         + '<div style="font-size:.72rem;color:#64748b">' + b.due_date + (b.account_name ? ' \u00b7 ' + esc(b.account_name) : '') + '</div>'
@@ -53,11 +56,22 @@ async function loadDebtPayoff() {
   try {
     var data = await api('/api/debt/payoff?extra_monthly=' + extra + '&strategy=' + strategy);
     if (!data.debts || !data.debts.length) {
-      el.innerHTML = '<p class="empty">No debt accounts found. Set account types to credit/loan/mortgage in Settings, then add rate + payment info.</p>';
+      if (data.message) {
+        // Has debts but no payment data — show table anyway with message
+      } else {
+        el.innerHTML = '<p class="empty">No debt accounts found. Set account types to credit/loan/mortgage in Settings, then add rate + payment info.</p>';
+        return;
+      }
       return;
     }
 
-    var html = '<div class="grid-4" style="margin-bottom:1rem">'
+    var html = '';
+    if (data.message) {
+      html += '<div style="padding:.6rem .8rem;background:#713f12;border:1px solid #92400e;border-radius:8px;margin-bottom:1rem;font-size:.82rem;color:#fde68a">'
+        + '⚠ ' + data.message
+        + ' <span style="color:#fbbf24;cursor:pointer;text-decoration:underline" onclick="showPage(\'settings\')">Go to Settings →</span></div>';
+    }
+    html += '<div class="grid-4" style="margin-bottom:1rem">'
       + '<div class="stat"><div class="stat-label">Total Debt</div><div class="stat-value amt-neg">' + fmt(data.total_balance) + '</div></div>'
       + '<div class="stat"><div class="stat-label">Monthly Payments</div><div class="stat-value">' + fmt(data.total_min_payment) + '</div></div>'
       + '<div class="stat"><div class="stat-label">Debt-Free In</div><div class="stat-value" style="color:#22c55e">' + (data.months_to_payoff ? data.months_to_payoff + ' mo' : '\u2014') + '</div>'
@@ -70,7 +84,10 @@ async function loadDebtPayoff() {
     data.debts.forEach(function(d) {
       var dateStr = d.paid_off_date ? d.paid_off_date.slice(0, 7) : '\u2014';
       var moStr = d.paid_off_month ? d.paid_off_month + ' mo' : '\u2014';
-      html += '<tr><td>' + esc(d.name) + '</td><td style="color:#64748b">' + d.type + '</td>'
+      var nameLink = typeof openAccountDetail === 'function' && d.id
+        ? '<a href="#" onclick="event.preventDefault();openAccountDetail(\'' + d.id + '\')" style="color:#e2e8f0;text-decoration:none;border-bottom:1px dashed #475569">' + esc(d.name) + '</a>'
+        : esc(d.name);
+      html += '<tr><td>' + nameLink + '</td><td style="color:#64748b">' + d.type + '</td>'
         + '<td class="amt-neg" style="text-align:right">' + fmt(d.starting_balance) + '</td>'
         + '<td style="text-align:right;color:#f59e0b">' + (d.rate ? d.rate.toFixed(2) + '%' : '\u2014') + '</td>'
         + '<td style="text-align:right">' + fmt(d.min_payment) + '</td>'
