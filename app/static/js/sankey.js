@@ -32,7 +32,11 @@ async function loadSankey(){
   }catch(e){console.error('Sankey error:',e);}
 }
 function renderSankey(d){
-  const W=Math.min(860,document.getElementById('sankey-wrap').offsetWidth||860),H=380,pad=40,nodeW=18,gap=6;
+  const wrapW=document.getElementById('sankey-wrap').offsetWidth||860;
+  const labelR=160,labelL=90,pad=30,nodeW=16,gap=5;
+  const flowW=Math.min(600,wrapW-labelL-labelR-pad*2);
+  const W=labelL+pad+flowW+pad+labelR;
+  const H=380;
   const totalIn=d.total_income,totalOut=d.total_spending;
   if(!totalIn&&!totalOut){$('sankey-wrap').innerHTML='<p class="empty">No data</p>';return;}
   const maxVal=Math.max(totalIn,totalOut);
@@ -54,7 +58,7 @@ function renderSankey(d){
   spNodes.forEach(n=>{n.y=yR;yR+=n.h+gap;});
   if(netH>0)var netY=yR;
   // Center column (total income)
-  const centerX=W/2-nodeW/2,centerY=pad,centerH=(totalIn/maxVal)*usableH;
+  const centerX=labelL+pad+flowW/2-nodeW/2,centerY=pad,centerH=(totalIn/maxVal)*usableH;
   // SVG
   let svg=`<svg width="${W}" height="${H+20}" viewBox="0 0 ${W} ${H+20}" xmlns="http://www.w3.org/2000/svg" style="font-family:-apple-system,sans-serif">`;
   // Helper: curved path
@@ -66,45 +70,47 @@ function renderSankey(d){
   let cY=centerY;
   incNodes.forEach(n=>{
     const flowH=(n.amount/totalIn)*centerH;
-    svg+=flowPath(pad+nodeW,n.y,n.h,centerX,cY,flowH,n.color,0.3);
+    svg+=flowPath(labelL+nodeW,n.y,n.h,centerX,cY,flowH,n.color,0.3);
     cY+=flowH;
   });
   // Center → spending flows
   let cY2=centerY;
   spNodes.forEach(n=>{
     const flowH=(n.amount/totalIn)*centerH;
-    svg+=flowPath(centerX+nodeW,cY2,flowH,W-pad-nodeW,n.y,n.h,n.color,0.3);
+    svg+=flowPath(centerX+nodeW,cY2,flowH,labelL+pad+flowW+pad,n.y,n.h,n.color,0.3);
     cY2+=flowH;
   });
   // Center → savings flow
   if(netH>0&&net>0){
     const flowH=(net/totalIn)*centerH;
-    svg+=flowPath(centerX+nodeW,cY2,flowH,W-pad-nodeW,netY,netH,'#22c55e',0.25);
+    svg+=flowPath(centerX+nodeW,cY2,flowH,labelL+pad+flowW+pad,netY,netH,'#22c55e',0.25);
   }
   // Draw nodes
   // Income nodes (left)
   incNodes.forEach(n=>{
-    svg+=`<rect x="${pad}" y="${n.y}" width="${nodeW}" height="${n.h}" rx="3" fill="${n.color}"/>`;
-    svg+=`<text x="${pad-6}" y="${n.y+n.h/2+4}" text-anchor="end" fill="#94a3b8" font-size="11">${n.name}</text>`;
+    svg+=`<rect x="${labelL}" y="${n.y}" width="${nodeW}" height="${n.h}" rx="3" fill="${n.color}"/>`;
+    svg+=`<text x="${labelL-6}" y="${n.y+n.h/2+4}" text-anchor="end" fill="#94a3b8" font-size="11">${n.name}</text>`;
   });
   // Center node
   svg+=`<rect x="${centerX}" y="${centerY}" width="${nodeW}" height="${centerH}" rx="3" fill="#3b82f6"/>`;
   svg+=`<text x="${centerX+nodeW/2}" y="${centerY-8}" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="600">${fmt(totalIn)}</text>`;
   // Spending nodes (right)
   spNodes.forEach(n=>{
-    svg+=`<rect x="${W-pad}" y="${n.y}" width="${nodeW}" height="${n.h}" rx="3" fill="${n.color}"/>`;
-    svg+=`<text x="${W-pad+nodeW+6}" y="${n.y+n.h/2+4}" fill="#94a3b8" font-size="11">${n.name} ${fmt(n.amount)}</text>`;
+    var rX=labelL+pad+flowW+pad;
+    svg+=`<rect x="${rX}" y="${n.y}" width="${nodeW}" height="${n.h}" rx="3" fill="${n.color}"/>`;
+    svg+=`<text x="${rX+nodeW+6}" y="${n.y+n.h/2+4}" fill="#94a3b8" font-size="11">${n.name} ${fmt(n.amount)}</text>`;
   });
   // Savings node
   if(netH>0&&net>0){
-    svg+=`<rect x="${W-pad}" y="${netY}" width="${nodeW}" height="${netH}" rx="3" fill="#22c55e"/>`;
-    svg+=`<text x="${W-pad+nodeW+6}" y="${netY+netH/2+4}" fill="#86efac" font-size="11" font-weight="600">Savings ${fmt(net)}</text>`;
+    var rX2=labelL+pad+flowW+pad;
+    svg+=`<rect x="${rX2}" y="${netY}" width="${nodeW}" height="${netH}" rx="3" fill="#22c55e"/>`;
+    svg+=`<text x="${rX2+nodeW+6}" y="${netY+netH/2+4}" fill="#86efac" font-size="11" font-weight="600">Savings ${fmt(net)}</text>`;
   }else if(net<0){
-    svg+=`<text x="${W-pad+nodeW+6}" y="${(yR||pad)+10}" fill="#fca5a5" font-size="11" font-weight="600">Over budget ${fmt(-net)}</text>`;
+    svg+=`<text x="${labelL+pad+flowW+pad+nodeW+6}" y="${(yR||pad)+10}" fill="#fca5a5" font-size="11" font-weight="600">Over budget ${fmt(-net)}</text>`;
   }
   // Labels
-  svg+=`<text x="${pad}" y="${H+14}" fill="#475569" font-size="10">INCOME</text>`;
-  svg+=`<text x="${W-pad}" y="${H+14}" fill="#475569" font-size="10">SPENDING</text>`;
+  svg+=`<text x="${labelL}" y="${H+14}" fill="#475569" font-size="10">INCOME</text>`;
+  svg+=`<text x="${labelL+pad+flowW+pad}" y="${H+14}" fill="#475569" font-size="10">SPENDING</text>`;
   svg+=`</svg>`;
   $('sankey-wrap').innerHTML=svg;
 }
