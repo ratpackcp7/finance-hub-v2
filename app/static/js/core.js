@@ -43,6 +43,9 @@ function showPage(name){
   document.querySelectorAll('nav:first-of-type a[data-page]').forEach(a=>a.classList.remove('active'));
   var topLink=document.querySelector('nav:first-of-type a[data-page="'+name+'"]');
   if(topLink)topLink.classList.add('active');
+
+  // Sidebar active state
+  document.querySelectorAll('.sidebar a[data-page]').forEach(a=>a.classList.toggle('active',a.dataset.page===name));
   $('page-'+name).classList.add('active');
 
   // Bottom nav active state
@@ -113,6 +116,18 @@ function catBadge(id,name){if(!id||!name)return'<span style="color:#475569;font-
 
 // ── Accounts ──
 async function loadAccounts(){accounts=await api('/api/accounts');const opts='<option value="">All accounts</option>'+accounts.map(a=>`<option value="${a.id}">${a.org?a.org+' – ':''}${a.name}</option>`).join('');if($('t-account'))$('t-account').innerHTML=opts;}
+
+// ── Sidebar nav ──
+(function(){
+  var sb=document.getElementById('sidebar');
+  if(!sb)return;
+  sb.addEventListener('click',function(e){
+    var a=e.target.closest('a[data-page]');
+    if(!a)return;
+    e.preventDefault();
+    showPage(a.dataset.page);
+  });
+})();
 
 // ── Bottom nav ──
 (function(){

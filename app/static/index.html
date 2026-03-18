@@ -106,6 +106,32 @@
   
     
 
+
+    /* ═══ DESKTOP SIDEBAR ═══ */
+    .sidebar{display:none}
+    @media(min-width:769px){
+      .sidebar{
+        display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;width:200px;
+        background:#0a0d14;border-right:1px solid #1e2530;z-index:50;padding:1rem 0;overflow-y:auto;
+      }
+      .sidebar .sb-logo{font-weight:700;font-size:.95rem;color:#f8fafc;padding:0 1.1rem .75rem;border-bottom:1px solid #1e2530;margin-bottom:.5rem}
+      .sidebar .sb-section{font-size:.65rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#475569;padding:.6rem 1.1rem .25rem;margin-top:.25rem}
+      .sidebar a{display:flex;align-items:center;gap:.6rem;padding:.5rem 1.1rem;color:#64748b;text-decoration:none;font-size:.82rem;border-left:3px solid transparent;transition:all .12s;cursor:pointer}
+      .sidebar a:hover{color:#cbd5e1;background:#111827}
+      .sidebar a.active{color:#f8fafc;border-left-color:#3b82f6;background:#111827}
+      .sidebar a svg{width:18px;height:18px;flex-shrink:0}
+      .sidebar .sb-sync{margin-top:auto;padding:.75rem 1.1rem;border-top:1px solid #1e2530;display:flex;align-items:center;gap:.6rem}
+
+      /* Hide top nav on desktop */
+      nav:first-of-type{display:none!important}
+
+      /* Shift content */
+      .page{margin-left:200px}
+
+      /* Shift feedback FAB */
+      .feedback-fab{left:220px;right:auto}
+    }
+
     /* ═══ BOTTOM NAV ═══ */
     .bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;width:100%;background:#0a0d14;border-top:1px solid #1e2530;z-index:999;padding:.25rem 0;transform:translateZ(0);-webkit-transform:translateZ(0);will-change:transform;contain:layout style}
     /* ═══ MORE OVERLAY ═══ */
@@ -298,6 +324,21 @@
   </style>
 </head>
 <body>
+<aside class="sidebar" id="sidebar">
+  <div class="sb-logo">💰 Finance Hub</div>
+  <div class="sb-section">Overview</div>
+  <a data-page="dashboard" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Dashboard</a>
+  <a data-page="spending"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Spending</a>
+  <a data-page="transactions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>Transactions</a>
+  <div class="sb-section">Manage</div>
+  <a data-page="rules"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>Payee Rules</a>
+  <a data-page="subscriptions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>Subscriptions</a>
+  <a data-page="imports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Imports</a>
+  <a data-page="reconcile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Reconcile</a>
+  <div class="sb-section">Settings</div>
+  <a data-page="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Setup</a>
+  <div class="sb-sync"><div class="sync-dot" id="sync-dot-sb"></div><button class="btn btn-ghost btn-sm" onclick="triggerSync()" style="font-size:.78rem">Sync Now</button></div>
+</aside>
 <nav>
   <span class="logo">💰 Finance Hub</span>
   <a class="active" data-page="dashboard">Dashboard</a>
