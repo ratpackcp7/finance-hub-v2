@@ -38,7 +38,6 @@ def create_category(body: CategoryCreate):
     conn = db_conn()
     try:
         cur = conn.cursor()
-        # Check for duplicate name
         cur.execute("SELECT id FROM categories WHERE lower(name) = lower(%s) AND deleted_at IS NULL", (name,))
         if cur.fetchone():
             raise HTTPException(status_code=400, detail=f"Category '{name}' already exists")
@@ -74,30 +73,62 @@ def delete_category(cat_id: int):
     return {"status": "ok"}
 
 
-class CategoryRename(BaseModel):
-    name: str
+class CategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+    group_name: Optional[str] = None
+    is_income: Optional[bool] = None
 
 
 @router.patch("/categories/{cat_id}")
-def rename_category(cat_id: int, body: CategoryRename):
-    name = require_nonempty(body.name, "name")
+def update_category(cat_id: int, body: CategoryUpdate):
     conn = db_conn()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT name FROM categories WHERE id = %s AND deleted_at IS NULL", (cat_id,))
+        cur.execute("SELECT name, color, group_name, is_income FROM categories WHERE id = %s AND deleted_at IS NULL",
+                    (cat_id,))
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Category not found")
-        if row[0] == "Uncategorized":
-            raise HTTPException(status_code=400, detail="Cannot rename Uncategorized")
-        # Check for duplicate name (excluding self)
-        cur.execute("SELECT id FROM categories WHERE lower(name) = lower(%s) AND id != %s AND deleted_at IS NULL",
-                    (name, cat_id))
-        if cur.fetchone():
-            raise HTTPException(status_code=400, detail=f"Category '{name}' already exists")
-        cur.execute("UPDATE categories SET name = %s WHERE id = %s", (name, cat_id))
-        _audit(cur, "category", cat_id, "rename", field_name="name", old_value=row[0], new_value=name)
+        old_name, old_color, old_group, old_income = row
+
+        # Build dynamic update
+        updates = []
+        params = []
+
+        if body.name is not None:
+            name = require_nonempty(body.name, "name")
+            if old_name == "Uncategorized":
+                raise HTTPException(status_code=400, detail="Cannot rename Uncategorized")
+            cur.execute("SELECT id FROM categories WHERE lower(name) = lower(%s) AND id != %s AND deleted_at IS NULL",
+                        (name, cat_id))
+            if cur.fetchone():
+                raise HTTPException(status_code=400, detail=f"Category '{name}' already exists")
+            updates.append("name = %s")
+            params.append(name)
+            _audit(cur, "category", cat_id, "rename", field_name="name", old_value=old_name, new_value=name)
+
+        if body.color is not None:
+            validate_color(body.color)
+            updates.append("color = %s")
+            params.append(body.color)
+
+        if body.group_name is not None:
+            updates.append("group_name = %s")
+            params.append(body.group_name if body.group_name else None)
+
+        if body.is_income is not None:
+            updates.append("is_income = %s")
+            params.append(body.is_income)
+
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        params.append(cat_id)
+        sql = f"UPDATE categories SET {', '.join(updates)} WHERE id = %s"
+        cur.execute(sql, params)
         conn.commit()
     finally:
         db_put(conn)
-    return {"status": "ok", "name": name}
+
+    return {"status": "ok", "id": cat_id}
