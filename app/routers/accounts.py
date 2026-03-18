@@ -44,10 +44,12 @@ def patch_account(acct_id: str, body: AccountPatch):
         if body.account_type is not None:
             cur.execute("SELECT account_type FROM accounts WHERE id = %s", (acct_id,))
             old = cur.fetchone()
+            if not old:
+                raise HTTPException(status_code=404, detail="Account not found")
             cur.execute("UPDATE accounts SET account_type = %s, updated_at = NOW() WHERE id = %s",
                         (body.account_type, acct_id))
             _audit(cur, "account", acct_id, "update", field_name="account_type",
-                   old_value=old[0] if old else None, new_value=body.account_type)
+                   old_value=old[0], new_value=body.account_type)
             conn.commit()
     finally:
         db_put(conn)
