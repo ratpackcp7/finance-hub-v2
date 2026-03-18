@@ -198,6 +198,23 @@ class CsvApplyRequest(BaseModel):
     sign_flip: bool = False
 
 
+def _fail_batch(conn, batch_id: Optional[int], error_msg: str):
+    """Mark an import batch as failed. Swallows errors to avoid masking the original exception."""
+    if batch_id is None:
+        return
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE import_batches SET status='error', finished_at=NOW(), error_message=%s WHERE id=%s",
+            (error_msg, batch_id))
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+
+
 @router.post("/apply")
 async def csv_apply(file: UploadFile = File(...), config: str = Form(...)):
     """Import CSV transactions. Config is JSON-encoded CsvApplyRequest."""
@@ -225,6 +242,8 @@ async def csv_apply(file: UploadFile = File(...), config: str = Form(...)):
     data_rows = rows[1:]
 
     conn = db_conn()
+    batch_id = None
+    categorized = 0
     try:
         cur = conn.cursor()
 
@@ -326,9 +345,9 @@ async def csv_apply(file: UploadFile = File(...), config: str = Form(...)):
 
             cur.execute(
                 "INSERT INTO transactions (id, account_id, posted, amount, description, "
-                "pending, import_batch_id, category_source) "
-                "VALUES (%s, %s, %s, %s, %s, FALSE, %s, NULL)",
-                (txn_id, account_id, date_val, amount, description, batch_id))
+                "pending, import_batch_id, first_import_batch_id, last_seen_batch_id, category_source) "
+                "VALUES (%s, %s, %s, %s, %s, FALSE, %s, %s, %s, NULL)",
+                (txn_id, account_id, date_val, amount, description, batch_id, batch_id, batch_id))
             added += 1
 
             _audit(cur, "transaction", txn_id, "csv_import", source="csv",
@@ -348,10 +367,13 @@ async def csv_apply(file: UploadFile = File(...), config: str = Form(...)):
              batch_id))
         conn.commit()
 
-    except HTTPException:
+    except HTTPException as e:
+        conn.rollback()
+        _fail_batch(conn, batch_id, str(e.detail))
         raise
     except Exception as e:
         conn.rollback()
+        _fail_batch(conn, batch_id, str(e))
         logger.error("CSV import failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Import failed: {e}")
     finally:
