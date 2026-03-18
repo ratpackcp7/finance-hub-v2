@@ -89,12 +89,14 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
                     ORDER BY t.posted DESC, t.id LIMIT %s OFFSET %s""",
                 params + [limit, offset])
         rows = cur.fetchall()
-        cur.execute(f"SELECT COUNT(*) FROM transactions t {where}", params)
-        total = cur.fetchone()[0]
+        cur.execute(f"SELECT COUNT(*), COALESCE(SUM(t.amount), 0) FROM transactions t {where}", params)
+        count_row = cur.fetchone()
+        total = count_row[0]
+        total_amount = float(count_row[1])
     finally:
         db_put(conn)
     return {
-        "total": total, "limit": limit, "offset": offset, "has_balance": account_id is not None,
+        "total": total, "total_amount": total_amount, "limit": limit, "offset": offset, "has_balance": account_id is not None,
         "transactions": [
             {"id": r[0], "account_id": r[1], "account_name": r[2],
              "posted": r[3].isoformat() if r[3] else None,
