@@ -1,6 +1,6 @@
 # Finance Hub v2 — Product Roadmap
 
-*Updated March 18, 2026 (v4.6.0). Reflects full build state after Phase 1 MVP, Phase 2 Automation, and Operations batch.*
+*Updated March 18, 2026 (v4.6.0+). Reflects full build state after Phase 1 MVP, Phase 2 Automation, Phase 3 Wealth, and Operations batch.*
 
 ---
 
@@ -13,10 +13,11 @@ Finance Hub is an import-first, self-hosted finance app designed for high-trust 
 
 ---
 
-## Current Stats (v4.6.0)
+## Current Stats (v4.6.0+)
 
-- 23 JS files, 16 migrations, 20 routers, 99 API endpoints
-- 14 pages, 14 modals
+- 27 JS files, 17 migrations, 26 routers, ~119 API endpoints
+- 17 pages, 14+ modals
+- 26 database tables
 - 3 Docker containers (app, worker, postgres)
 - SimpleFIN sync: 6AM + 6PM CT + startup + manual
 - Accessible at finance.cp7.dev via Cloudflare Zero Trust tunnel
@@ -64,11 +65,11 @@ Finance Hub is an import-first, self-hosted finance app designed for high-trust 
 | Tags / labels | ✅ | 6 seeded tags, CRUD, checkbox toggles in edit modal, tag filter on transactions |
 | Split-aware spending | ✅ | `spending_items` VIEW, 8 queries use it (by-category, deltas, flow, trends, budgets) |
 | Category confidence indicators | ✅ | `category_source` field: user/rule/ai/sync. Badges on transactions. |
-| Bulk edit tools | ❌ | Select multiple → batch category/tag |
-| Rename / merge merchants | ❌ | Consolidate messy payee names |
+| Bulk edit tools | ✅ | Select multiple → batch category/tag (bulk.py + bulk.js) |
+| Rename / merge merchants | ✅ | Consolidate messy payee names (merchants.py + merchants.js) |
 | Saved filter views | ❌ | Bookmark a filter combo |
 
-### Phase 3 — Reporting & Planning ✅ ~85% Complete
+### Phase 3 — Reporting & Planning ✅ ~95% Complete
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -82,11 +83,24 @@ Finance Hub is an import-first, self-hosted finance app designed for high-trust 
 | Savings goals | ✅ | CRUD, account-linked auto-track, manual contributions, progress bars, dashboard widget |
 | Telegram monthly digest | ✅ | Income/spending/net/savings rate/top categories/budget status/net worth. Worker cron 1st @ 9AM CT. |
 | Investment tracking | ✅ | Holdings table, yfinance price refresh, Vanguard performance CSV, portfolio value chart |
-| Dividend tracking | 🟡 | Monthly aggregates. No per-holding dividend history. |
-| Period-over-period (YoY) | 🟡 | MoM exists. No YoY or arbitrary period. |
-| Forecasting | ❌ | Project future spending from historical patterns |
+| Dividend tracking | ✅ | Monthly aggregates + by-holding breakdown + annual estimate from investment transactions |
+| Period comparison (MoM) | ✅ | Month-over-month comparison (compare.py + compare.js) |
+| Forecasting | ✅ | Cashflow projection (N months), per-category pace-based forecast, what-if scenarios (forecast.py + forecast.js) |
 
-### Phase 4 — Convenience & Polish
+### Phase 4 — Wealth ✅ ~90% Complete
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Broker/portfolio imports | ✅ | Holdings table, Vanguard performance CSV import, yfinance price refresh |
+| Investment transactions | ✅ | Buy/sell/dividend/reinvest/fee/split/transfer CRUD (inv_txns.py) |
+| Tax lot tracking (FIFO) | ✅ | Auto-create lots on buy, FIFO close on sell, open/closed lot views, cost basis per share |
+| Realized gain/loss | ✅ | Long-term vs short-term classification, per-holding + total summary (/gains endpoint) |
+| Unrealized gain/loss | ✅ | Market value vs cost basis across all holdings, percentage return |
+| Benchmark analytics | ✅ | Compare portfolio returns against SPY/VTI/QQQ, alpha calculation, auto-fetch via yfinance, manual refresh |
+| Per-holding dividend history | 🟡 | Monthly aggregates exist. No discrete dividend event model (ex-date, pay-date, per-share amount). |
+| YoY comparison | ❌ | MoM exists. No YoY or arbitrary period-over-period. |
+
+### Phase 5 — Convenience & Polish
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -95,7 +109,7 @@ Finance Hub is an import-first, self-hosted finance app designed for high-trust 
 | Account detail modal | ✅ | CC: due day, APR, min payment, credit limit, utilization bar, autopay. Loans: rate, term, payment, maturity. |
 | Source badges | ✅ | ✎ manual, ⬆ csv, ⏳ pending, 🔒 reconciled, ✂ split, ↻ recurring, ↔ transfer |
 | finance.cp7.dev tunnel | ✅ | Cloudflare Zero Trust, 302 auth |
-| Cache busters | ✅ | All 23 JS files have ?v= timestamps |
+| Cache busters | ✅ | All 27 JS files have ?v= timestamps |
 | Keyboard shortcuts | ❌ | Quick nav, quick categorize |
 | Attachments (receipts) | ❌ | Upload + link to transactions |
 | Multi-user support | 🟡 | household_id columns exist, no auth |
@@ -146,22 +160,19 @@ Finance Hub is an import-first, self-hosted finance app designed for high-trust 
 ## Remaining Priorities
 
 ### High Impact
-1. **Bulk edit tools** — select multiple transactions, batch-apply category/tag/mark-reviewed
-2. **YoY comparison** — period-over-period for any two months/ranges
-3. **Merge/rename merchants** — consolidate messy payee names across imports
+1. **YoY / arbitrary period comparison** — extend compare.py beyond MoM to support any two date ranges
+2. **Saved filter views** — bookmark a filter combo for quick recall on transactions page
 
 ### Medium Impact
-4. **Per-holding dividend history** — track dividend events per security
-5. **Tax lot tracking** — cost basis lots for gain/loss accuracy
-6. **Benchmark analytics** — compare portfolio to S&P 500 / total market
-7. **Forecasting** — project future spending from historical patterns
+3. **Per-holding dividend event model** — discrete dividend events with ex-date, pay-date, per-share amount (beyond current monthly aggregates)
+4. **Multi-user auth** — household_id wiring + login
 
 ### Lower Priority
-8. **Keyboard shortcuts** — quick nav, quick categorize
-9. **Receipt attachments** — upload + link to transactions
-10. **Multi-user auth** — household_id wiring + login
-11. **PWA offline** — service worker + offline caching
+5. **Keyboard shortcuts** — quick nav, quick categorize
+6. **Receipt attachments** — upload + link to transactions
+7. **PWA offline** — service worker + offline caching
+8. **Notification center** — in-app alerts
 
 ---
 
-*23 tables, 99 endpoints, 14 pages. Finance Hub is a functional personal finance platform.*
+*26 routers, ~119 endpoints, 27 JS files, 17 migrations, 26 tables, 17 pages. Finance Hub is a functional personal finance platform.*
