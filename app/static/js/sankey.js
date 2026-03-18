@@ -46,7 +46,7 @@ function renderFlowLists(d, start, end) {
   var incHtml = '<div class="bar-list">';
   var maxInc = d.income[0] ? d.income[0].amount : 1;
   d.income.forEach(function(i) {
-    incHtml += '<div class="bar-row" style="cursor:pointer" onclick="flowDrill(\'' + esc(i.name) + '\',\'credit\',\'' + start + '\',\'' + end + '\')">'
+    incHtml += '<div class="bar-row" style="cursor:pointer" onclick="flowDrill(\'' + esc(i.name) + '\',\'income\',\'' + start + '\',\'' + end + '\')">'
       + '<div class="bar-label"><span class="cat-dot" style="background:' + (i.color || '#4ade80') + '"></span>' + esc(i.name) + '</div>'
       + '<div class="bar-track"><div class="bar-fill" style="width:' + (i.amount / maxInc * 100).toFixed(1) + '%;background:' + (i.color || '#4ade80') + '"></div></div>'
       + '<div class="bar-amount">' + fmt(i.amount) + '</div></div>';
@@ -58,7 +58,7 @@ function renderFlowLists(d, start, end) {
   var spHtml = '<div class="bar-list">';
   var maxSp = d.spending[0] ? d.spending[0].amount : 1;
   d.spending.forEach(function(s) {
-    spHtml += '<div class="bar-row" style="cursor:pointer" onclick="flowDrill(\'' + esc(s.name) + '\',\'debit\',\'' + start + '\',\'' + end + '\')">'
+    spHtml += '<div class="bar-row" style="cursor:pointer" onclick="flowDrill(\'' + esc(s.name) + '\',\'spending\',\'' + start + '\',\'' + end + '\')">'
       + '<div class="bar-label"><span class="cat-dot" style="background:' + (s.color || '#475569') + '"></span>' + esc(s.name) + '</div>'
       + '<div class="bar-track"><div class="bar-fill" style="width:' + (s.amount / maxSp * 100).toFixed(1) + '%;background:' + (s.color || '#475569') + '"></div></div>'
       + '<div class="bar-amount">' + fmt(s.amount) + '</div></div>';
@@ -150,8 +150,8 @@ function renderFlowSankey(d, wrapperId) {
 
   // Income nodes (left) — clickable
   incNodes.forEach(function(n) {
-    svg += '<rect x="' + labelL + '" y="' + n.y + '" width="' + nodeW + '" height="' + n.h + '" rx="3" fill="' + n.color + '" style="cursor:pointer" onclick="flowDrill(\'' + n.name.replace(/'/g, "\\'") + '\',\'credit\',\'' + (d._start || '') + '\',\'' + (d._end || '') + '\')"/>';
-    svg += '<text x="' + (labelL - 6) + '" y="' + (n.y + n.h / 2 + 4) + '" text-anchor="end" fill="#94a3b8" font-size="11" style="cursor:pointer" onclick="flowDrill(\'' + n.name.replace(/'/g, "\\'") + '\',\'credit\',\'' + (d._start || '') + '\',\'' + (d._end || '') + '\')">' + n.name + '</text>';
+    svg += '<rect x="' + labelL + '" y="' + n.y + '" width="' + nodeW + '" height="' + n.h + '" rx="3" fill="' + n.color + '" style="cursor:pointer" onclick="flowDrill(\'' + n.name.replace(/'/g, "\\'") + '\',\'income\',\'' + (d._start || '') + '\',\'' + (d._end || '') + '\')"/>';
+    svg += '<text x="' + (labelL - 6) + '" y="' + (n.y + n.h / 2 + 4) + '" text-anchor="end" fill="#94a3b8" font-size="11" style="cursor:pointer" onclick="flowDrill(\'' + n.name.replace(/'/g, "\\'") + '\',\'income\',\'' + (d._start || '') + '\',\'' + (d._end || '') + '\')">' + n.name + '</text>';
   });
 
   // Center node
@@ -160,8 +160,8 @@ function renderFlowSankey(d, wrapperId) {
 
   // Spending nodes (right) — clickable
   spNodes.forEach(function(n) {
-    svg += '<rect x="' + rX + '" y="' + n.y + '" width="' + nodeW + '" height="' + n.h + '" rx="3" fill="' + n.color + '" style="cursor:pointer" onclick="flowDrill(\'' + n.name.replace(/'/g, "\\'") + '\',\'debit\',\'' + (d._start || '') + '\',\'' + (d._end || '') + '\')"/>';
-    svg += '<text x="' + (rX + nodeW + 6) + '" y="' + (n.y + n.h / 2 + 4) + '" fill="#94a3b8" font-size="11" style="cursor:pointer" onclick="flowDrill(\'' + n.name.replace(/'/g, "\\'") + '\',\'debit\',\'' + (d._start || '') + '\',\'' + (d._end || '') + '\')">' + n.name + ' ' + fmt(n.amount) + '</text>';
+    svg += '<rect x="' + rX + '" y="' + n.y + '" width="' + nodeW + '" height="' + n.h + '" rx="3" fill="' + n.color + '" style="cursor:pointer" onclick="flowDrill(\'' + n.name.replace(/'/g, "\\'") + '\',\'spending\',\'' + (d._start || '') + '\',\'' + (d._end || '') + '\')"/>';
+    svg += '<text x="' + (rX + nodeW + 6) + '" y="' + (n.y + n.h / 2 + 4) + '" fill="#94a3b8" font-size="11" style="cursor:pointer" onclick="flowDrill(\'' + n.name.replace(/'/g, "\\'") + '\',\'spending\',\'' + (d._start || '') + '\',\'' + (d._end || '') + '\')">' + n.name + ' ' + fmt(n.amount) + '</text>';
   });
 
   // Savings node

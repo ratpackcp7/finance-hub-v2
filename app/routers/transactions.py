@@ -53,6 +53,9 @@ def _txn_filters(account_id=None, category_id=None, start_date=None, end_date=No
     elif txn_type == "income":
         filters.append("t.amount > 0")
         filters.append("c.is_income = TRUE")
+    elif txn_type == "spending":
+        filters.append("t.amount < 0")
+        filters.append("COALESCE(c.name, '') NOT IN ('Credit Card Pay', 'Transfer')")
     if recurring is not None:
         filters.append("t.recurring = %s"); params.append(recurring)
     return filters, params

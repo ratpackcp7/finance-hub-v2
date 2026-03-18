@@ -103,7 +103,7 @@ function renderDonut(catSpend) {
         var catId = catObj ? catObj.id : null;
         if (!catId) return;
         // Drill down to transactions with the donut's current date range
-        var opts = { category: catId };
+        var opts = { category: catId, type: 'spending' };
         if (_donutStart) { opts.from = _donutStart; opts.to = _donutEnd; }
         drillDown(opts);
       },
