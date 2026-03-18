@@ -22,7 +22,7 @@ def _take_snapshot_after_sync(conn):
     cur.execute("""
         INSERT INTO balance_snapshots (snapshot_date, account_id, account_name, account_type, balance)
         SELECT %s, id, name, COALESCE(account_type, 'checking'), balance
-        FROM accounts WHERE hidden = FALSE AND balance IS NOT NULL
+        FROM accounts WHERE hidden = FALSE AND on_budget = TRUE AND balance IS NOT NULL
         ON CONFLICT (snapshot_date, account_id) DO UPDATE SET
             balance = EXCLUDED.balance,
             account_name = EXCLUDED.account_name,

@@ -26,11 +26,12 @@ def get_accounts():
              "balance_date": r[5].isoformat() if r[5] else None,
              "on_budget": r[6], "hidden": r[7],
              "updated_at": r[8].isoformat() if r[8] else None,
-             "account_type": r[9] or "checking"} for r in rows]
+             "account_type": r[9] or "checking", "on_budget": r[6]} for r in rows]
 
 
 class AccountPatch(BaseModel):
     account_type: Optional[str] = None
+    on_budget: Optional[bool] = None
 
 
 @router.patch("/accounts/{acct_id}")
@@ -50,7 +51,14 @@ def patch_account(acct_id: str, body: AccountPatch):
                         (body.account_type, acct_id))
             _audit(cur, "account", acct_id, "update", field_name="account_type",
                    old_value=old[0], new_value=body.account_type)
-            conn.commit()
+        if body.on_budget is not None:
+            cur.execute("SELECT on_budget FROM accounts WHERE id = %s", (acct_id,))
+            old_ob = cur.fetchone()
+            cur.execute("UPDATE accounts SET on_budget = %s, updated_at = NOW() WHERE id = %s",
+                        (body.on_budget, acct_id))
+            _audit(cur, "account", acct_id, "update", field_name="on_budget",
+                   old_value=str(old_ob[0]) if old_ob else None, new_value=str(body.on_budget))
+        conn.commit()
     finally:
         db_put(conn)
     return {"status": "ok"}
@@ -63,7 +71,7 @@ def net_worth():
         cur = conn.cursor()
         cur.execute(
             "SELECT COALESCE(account_type, 'checking'), SUM(balance), COUNT(*) "
-            "FROM accounts WHERE hidden = FALSE AND balance IS NOT NULL GROUP BY 1 ORDER BY 1")
+            "FROM accounts WHERE hidden = FALSE AND on_budget = TRUE AND balance IS NOT NULL GROUP BY 1 ORDER BY 1")
         rows = cur.fetchall()
     finally:
         db_put(conn)
