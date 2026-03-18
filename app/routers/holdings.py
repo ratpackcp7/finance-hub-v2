@@ -182,13 +182,15 @@ def refresh_prices():
 
 # Map transaction payees to tickers
 PAYEE_TICKER_MAP = {
-    "cohen steers reit prefer": "CPXAX",
+    "cohen steers reit": "RNP",
     "nvidia corp": "NVDA",
     "meta platforms inc": "META",
-    "vanguard mega cap growth etf": "MGK",
+    "vanguard mega cap growth": "MGK",
     "vanguard total stock market etf": "VTI",
     "vanguard total stock market index admiral": "VTSAX",
-    "state street spdr": "SPY",
+    "vanguard growth index": "VITAX",
+    "fidelity wise origin bitcoin": "FBTC",
+    "state street spdr": "SPYM",
     "vanguard federal money market": "VMFXX",
 }
 
