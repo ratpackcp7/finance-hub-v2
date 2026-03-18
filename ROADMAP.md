@@ -1,6 +1,6 @@
 # Finance Hub v2 — Product Roadmap
 
-*Consolidated March 17, 2026. Integrates original feature benchmark, ChatGPT product critique, and current build state.*
+*Updated March 18, 2026. Integrates original feature benchmark, ChatGPT product critique, and current build state.*
 
 ---
 
@@ -94,7 +94,7 @@ The original plan prioritized by **user-visible features** (manual entry, splits
 | Raw import preservation | ✅ Done | Full SimpleFIN JSON stored per batch |
 | Source-aware import pipeline | ✅ Done | import_batch_id on every transaction |
 | Pending vs posted transaction handling | ❌ Not built | Model separately so pending charges don't skew balances |
-| CSV import with saved column mappings | ❌ Not built | For institutions SimpleFIN doesn't cover (Ford Credit, Toyota Financial) |
+| CSV import with saved column mappings | ✅ Done | For institutions SimpleFIN doesn't cover (Ford Credit, Toyota Financial) |
 | Merchant/payee normalization pipeline | 🟡 Partial | Payee rules exist but no systematic normalization |
 | Review queue for uncategorized/low-confidence | 🟡 Partial | AI categorize button exists but no dedicated triage view |
 
@@ -111,14 +111,14 @@ The original plan prioritized by **user-visible features** (manual entry, splits
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Running account balances | ✅ Done | CTE window function, displayed per-account |
-| Transfer matching with manual override | ✅ Done | Auto-detect + is_transfer flag + spending exclusion |
+| Transfer matching with manual override | ✅ Done | Auto-detect + is_transfer flag + transfer_pair_id linking + spending exclusion |
 | Cleared / posted / reconciled transaction states | ❌ Not built | State machine for transaction lifecycle |
 | Reconciliation workflow | ❌ Not built | Compare app balance vs statement balance, surface discrepancies |
 | Balance checkpoints / statement anchors | ❌ Not built | User enters known statement balance to anchor accuracy |
-| Edit history for transaction changes | ❌ Not built | Log what changed, when, by whom (user vs rule vs AI) |
+| Edit history for transaction changes | 🟡 Partial | audit_log tracks category, payee, notes, transfer, manual create/delete. Source field (sync/csv/manual) on all txns. |
 | Data provenance at transaction level | ✅ Done | import_batch_id + raw JSON preserved |
 | Locking behavior for reconciled periods | ❌ Not built | Prevent accidental edits to already-reconciled months |
-| Manual transaction entry | ❌ Not built | Date, payee, amount, category, account form |
+| Manual transaction entry | ✅ Done | Full modal: account, date, type, amount, payee, description, category, notes, transfer flag. Delete for manual-only txns. |
 
 ---
 
@@ -223,9 +223,10 @@ The original plan prioritized by **user-visible features** (manual entry, splits
 ## Next Actions (Recommended Build Order)
 
 1. ~~Import dedup + batch tracking~~ ✅ Done
-2. CSV import with column mapping — Chase/Discover formats first, save mappings per institution
-3. Reconciliation workflow — statement balance entry, surface discrepancies
-4. Manual transaction entry — date, payee, amount, category, account form
+2. ~~CSV import with column mapping~~ ✅ Done (Chase, Discover, Citi, Chase Checking presets + custom)
+3. ~~Manual transaction entry~~ ✅ Done (full modal + delete)
+4. ~~Transfer pair linking~~ ✅ Done (transfer_pair_id replaces boolean-only)
+5. ~~Credit card / loan account metadata~~ ✅ Done (due day, APR, min payment, credit limit, loan rate/term/payment)
 5. Split transactions — one txn to multiple category allocations
 6. Advanced rules engine — multi-condition, priority ordering, preview mode
 
