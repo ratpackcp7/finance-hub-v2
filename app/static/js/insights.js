@@ -340,13 +340,39 @@ function renderHoldingsTable(data) {
 
   var inputStyle = 'width:75px;font-size:.75rem;text-align:right;padding:.2rem .3rem;background:#0d1117;color:#e2e8f0;border:1px solid #1e2530;border-radius:3px';
 
+  // Group by account
+  var acctGroups = {};
+  var acctOrder = [];
+  data.holdings.forEach(function(h) {
+    var aid = h.account_id;
+    if (!acctGroups[aid]) {
+      acctGroups[aid] = { name: h.account_name, holdings: [], totalVal: 0, totalCost: 0, totalGain: 0 };
+      acctOrder.push(aid);
+    }
+    acctGroups[aid].holdings.push(h);
+    acctGroups[aid].totalVal += (h.market_value || 0);
+    acctGroups[aid].totalCost += ((h.cost_basis || 0) * h.shares);
+    acctGroups[aid].totalGain += (h.gain || 0);
+  });
+
   var html = '<div style="overflow-x:auto"><table style="font-size:.78rem"><thead><tr>'
     + '<th>Ticker</th><th>Name</th><th style="text-align:right">Shares</th>'
     + '<th style="text-align:right">Price</th><th style="text-align:right">Value</th>'
     + '<th style="text-align:right">Cost/Share</th><th style="text-align:right">Gain/Loss</th><th></th>'
     + '</tr></thead><tbody>';
 
-  data.holdings.forEach(function(h) {
+  acctOrder.forEach(function(aid) {
+    var grp = acctGroups[aid];
+    var gColor = grp.totalGain >= 0 ? '#86efac' : '#fca5a5';
+    var gPct = grp.totalCost > 0 ? (grp.totalGain / grp.totalCost * 100).toFixed(1) : '0.0';
+    html += '<tr style="background:#1e253080;cursor:pointer" onclick="showAccountDetail(\'' + aid.replace(/'/g, "\\'") + '\')">'
+      + '<td colspan="4" style="font-weight:600;color:#818cf8;padding:.5rem .3rem">' + grp.name + ' &#9654;</td>'
+      + '<td style="text-align:right;font-weight:600;padding:.5rem .3rem">' + fmt(grp.totalVal) + '</td>'
+      + '<td style="text-align:right;color:#64748b;padding:.5rem .3rem">' + fmt(grp.totalCost) + '</td>'
+      + '<td style="text-align:right;color:' + gColor + ';font-weight:600;padding:.5rem .3rem">' + fmt(grp.totalGain) + ' (' + gPct + '%)</td>'
+      + '<td></td></tr>';
+
+    grp.holdings.forEach(function(h) {
     var price = h.last_price ? fmt(h.last_price) : '\u2014';
     var val = h.market_value ? fmt(h.market_value) : '\u2014';
     var gainStr = '\u2014', gainColor = '#64748b';
@@ -370,6 +396,8 @@ function renderHoldingsTable(data) {
         ? '<td><button class="btn btn-ghost btn-sm" style="color:#ef4444;font-size:.68rem;padding:.1rem .3rem" onclick="removeHolding(' + h.id + ')">\u2715</button></td></tr>'
         : '<td></td></tr>');
   });
+
+  });  // close acctOrder loop
 
   html += '<tr style="border-top:2px solid #1e2530;font-weight:700"><td colspan="4">Total Portfolio</td>'
     + '<td style="text-align:right">' + fmt(data.total_value) + '</td>'
@@ -750,11 +778,11 @@ function renderAllocByHolding(data) {
 function renderAllocByAccount(data) {
   // Group by account
   var acctMap = {};
+  var acctIdMap = {};
   data.holdings.forEach(function(h) {
     var name = h.account_name || 'Unknown';
-    // Shorten account name
     if (name.length > 25) name = name.substring(0, 22) + '...';
-    if (!acctMap[name]) acctMap[name] = 0;
+    if (!acctMap[name]) { acctMap[name] = 0; acctIdMap[name] = h.account_id; }
     acctMap[name] += (h.market_value || 0);
   });
 
@@ -783,7 +811,136 @@ function renderAllocByAccount(data) {
             }
           }
         }
+      },
+      onClick: function(e, elements) {
+        if (elements.length > 0) {
+          var idx = elements[0].index;
+          var name = labels[idx];
+          var aid = acctIdMap[name];
+          if (aid) showAccountDetail(aid);
+        }
       }
     }
   });
+}
+
+
+// ═══════════════════════════════════════
+// Account Detail Modal
+// ═══════════════════════════════════════
+var _acctDetailChart = null;
+
+function showAccountDetail(accountId) {
+  var data = window._lastHoldingsData;
+  if (!data) return;
+
+  var holdings = data.holdings.filter(function(h) { return h.account_id === accountId; });
+  if (!holdings.length) return;
+
+  var acctName = holdings[0].account_name;
+  $('acct-detail-title').textContent = acctName;
+
+  var totalVal = 0, totalCost = 0;
+  holdings.forEach(function(h) {
+    totalVal += (h.market_value || 0);
+    totalCost += ((h.cost_basis || 0) * h.shares);
+  });
+  var totalGain = totalVal - totalCost;
+  var gainPct = totalCost > 0 ? (totalGain / totalCost * 100) : 0;
+
+  // Summary cards
+  var gainColor = totalGain >= 0 ? '#86efac' : '#fca5a5';
+  $('acct-detail-summary').innerHTML =
+    '<div style="display:flex;gap:.75rem;flex-wrap:wrap">'
+    + '<div style="background:#1e2530;border-radius:8px;padding:.6rem 1rem;flex:1;min-width:120px">'
+    + '<div style="font-size:.68rem;color:#64748b;text-transform:uppercase">Market Value</div>'
+    + '<div style="font-size:1.2rem;font-weight:700;color:#f8fafc">' + fmt(totalVal) + '</div></div>'
+    + '<div style="background:#1e2530;border-radius:8px;padding:.6rem 1rem;flex:1;min-width:120px">'
+    + '<div style="font-size:.68rem;color:#64748b;text-transform:uppercase">Cost Basis</div>'
+    + '<div style="font-size:1.2rem;font-weight:700;color:#94a3b8">' + fmt(totalCost) + '</div></div>'
+    + '<div style="background:#1e2530;border-radius:8px;padding:.6rem 1rem;flex:1;min-width:120px">'
+    + '<div style="font-size:.68rem;color:#64748b;text-transform:uppercase">Gain/Loss</div>'
+    + '<div style="font-size:1.2rem;font-weight:700;color:' + gainColor + '">' + fmt(totalGain) + ' (' + gainPct.toFixed(1) + '%)</div></div>'
+    + '<div style="background:#1e2530;border-radius:8px;padding:.6rem 1rem;flex:1;min-width:120px">'
+    + '<div style="font-size:.68rem;color:#64748b;text-transform:uppercase">Holdings</div>'
+    + '<div style="font-size:1.2rem;font-weight:700;color:#f8fafc">' + holdings.length + '</div></div>'
+    + '</div>';
+
+  // Stats breakdown
+  var statsHtml = '<div style="font-size:.78rem;display:flex;flex-direction:column;gap:.4rem;padding-top:.5rem">';
+  holdings.sort(function(a, b) { return (b.market_value || 0) - (a.market_value || 0); });
+  holdings.forEach(function(h) {
+    var pct = totalVal > 0 ? ((h.market_value || 0) / totalVal * 100).toFixed(1) : '0.0';
+    var barW = Math.min(100, Math.max(2, parseFloat(pct)));
+    var gC = (h.gain || 0) >= 0 ? '#86efac' : '#fca5a5';
+    statsHtml += '<div>'
+      + '<div style="display:flex;justify-content:space-between;color:#94a3b8;font-size:.72rem">'
+      + '<span style="font-weight:600;color:#818cf8">' + h.ticker + '</span>'
+      + '<span>' + pct + '%</span></div>'
+      + '<div style="background:#0d1117;border-radius:3px;height:6px;overflow:hidden;margin-top:2px">'
+      + '<div style="width:' + barW + '%;background:#3b82f6;height:100%;border-radius:3px"></div></div>'
+      + '</div>';
+  });
+  statsHtml += '</div>';
+  $('acct-detail-stats').innerHTML = statsHtml;
+
+  // Allocation pie
+  var labels = holdings.map(function(h) { return h.ticker; });
+  var values = holdings.map(function(h) { return h.market_value || 0; });
+  var colors = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
+
+  var ctx = $('chart-acct-detail-alloc').getContext('2d');
+  if (_acctDetailChart) _acctDetailChart.destroy();
+  _acctDetailChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: labels,
+      datasets: [{ data: values, backgroundColor: colors, borderWidth: 1, borderColor: '#0f1729' }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { color: '#94a3b8', font: { size: 10 }, usePointStyle: true } },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              var pct = (ctx.raw / totalVal * 100).toFixed(1);
+              return ctx.label + ': ' + fmt(ctx.raw) + ' (' + pct + '%)';
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // Holdings detail table
+  var tbl = '<table style="font-size:.74rem;width:100%;margin-top:.5rem"><thead><tr>'
+    + '<th>Ticker</th><th>Name</th><th style="text-align:right">Shares</th>'
+    + '<th style="text-align:right">Price</th><th style="text-align:right">Value</th>'
+    + '<th style="text-align:right">Cost</th><th style="text-align:right">Gain/Loss</th></tr></thead><tbody>';
+
+  holdings.forEach(function(h) {
+    var price = h.last_price ? fmt(h.last_price) : '—';
+    var val = h.market_value ? fmt(h.market_value) : '—';
+    var cost = h.cost_basis ? fmt(h.cost_basis) : '—';
+    var gColor = '#64748b', gStr = '—';
+    if (h.gain !== null) {
+      gColor = h.gain >= 0 ? '#86efac' : '#fca5a5';
+      gStr = fmt(h.gain) + (h.gain_pct !== null ? ' (' + h.gain_pct.toFixed(1) + '%)' : '');
+    }
+    tbl += '<tr>'
+      + '<td style="font-weight:600;color:#818cf8">' + h.ticker + '</td>'
+      + '<td style="color:#94a3b8;font-size:.7rem">' + h.name + '</td>'
+      + '<td style="text-align:right">' + h.shares.toFixed(3) + '</td>'
+      + '<td style="text-align:right;color:#64748b">' + price + '</td>'
+      + '<td style="text-align:right;font-weight:600">' + val + '</td>'
+      + '<td style="text-align:right;color:#64748b">' + cost + '</td>'
+      + '<td style="text-align:right;color:' + gColor + '">' + gStr + '</td></tr>';
+  });
+
+  tbl += '</tbody></table>';
+  $('acct-detail-holdings').innerHTML = tbl;
+
+  // Show modal
+  $('acct-detail-modal').classList.add('active');
 }
