@@ -19,6 +19,8 @@ var TYPE_LABELS = {
 
 async function loadInsights() {
   loadBva();
+  loadSpendingTrends();
+  loadAllocations();
   try {
     var results = await Promise.all([
       api('/api/net-worth/breakdown'),
@@ -650,4 +652,138 @@ function renderBvaTable(data) {
 
   html += '</tbody></table></div>';
   $('bva-table').innerHTML = html;
+}
+
+
+// ═══════════════════════════════════════
+// Spending Trends
+// ═══════════════════════════════════════
+var _spendTrendsChart = null;
+
+async function loadSpendingTrends() {
+  try {
+    var data = await api('/api/spending/trends?months=4&top=6');
+    renderSpendTrends(data);
+  } catch (e) { console.error('Trends error:', e); }
+}
+
+function renderSpendTrends(data) {
+  var ctx = $('chart-spend-trends').getContext('2d');
+  if (_spendTrendsChart) _spendTrendsChart.destroy();
+
+  var datasets = data.categories.map(function(cat) {
+    return {
+      label: cat.name,
+      data: cat.values,
+      borderColor: cat.color,
+      backgroundColor: cat.color + '20',
+      fill: false,
+      tension: 0.3,
+      borderWidth: 2,
+      pointRadius: 4,
+      pointHoverRadius: 6,
+    };
+  });
+
+  _spendTrendsChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: data.months, datasets: datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#94a3b8', font: { size: 10 }, usePointStyle: true, pointStyle: 'circle' } },
+        tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + fmt(ctx.raw); } } }
+      },
+      scales: {
+        x: { grid: { color: '#1e2530' }, ticks: { color: '#64748b', font: { size: 10 } } },
+        y: { grid: { color: '#1e2530' }, ticks: { color: '#64748b', font: { size: 10 }, callback: function(v) { return fmt(v); } } }
+      }
+    }
+  });
+}
+
+// ═══════════════════════════════════════
+// Investment Allocation
+// ═══════════════════════════════════════
+var _allocHoldingChart = null, _allocAccountChart = null;
+
+async function loadAllocations() {
+  try {
+    var data = await api('/api/holdings');
+    renderAllocByHolding(data);
+    renderAllocByAccount(data);
+  } catch (e) { console.error('Allocation error:', e); }
+}
+
+function renderAllocByHolding(data) {
+  var h = data.holdings.filter(function(x) { return x.market_value > 0; });
+  var labels = h.map(function(x) { return x.ticker; });
+  var values = h.map(function(x) { return x.market_value; });
+  var colors = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#64748b'];
+
+  var ctx = $('chart-alloc-holding').getContext('2d');
+  if (_allocHoldingChart) _allocHoldingChart.destroy();
+  _allocHoldingChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: labels,
+      datasets: [{ data: values, backgroundColor: colors, borderWidth: 1, borderColor: '#0f1729' }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right', labels: { color: '#94a3b8', font: { size: 10 }, usePointStyle: true, pointStyle: 'circle' } },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              var pct = (ctx.raw / data.total_value * 100).toFixed(1);
+              return ctx.label + ': ' + fmt(ctx.raw) + ' (' + pct + '%)';
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+function renderAllocByAccount(data) {
+  // Group by account
+  var acctMap = {};
+  data.holdings.forEach(function(h) {
+    var name = h.account_name || 'Unknown';
+    // Shorten account name
+    if (name.length > 25) name = name.substring(0, 22) + '...';
+    if (!acctMap[name]) acctMap[name] = 0;
+    acctMap[name] += (h.market_value || 0);
+  });
+
+  var labels = Object.keys(acctMap);
+  var values = Object.values(acctMap);
+  var colors = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6'];
+
+  var ctx = $('chart-alloc-account').getContext('2d');
+  if (_allocAccountChart) _allocAccountChart.destroy();
+  _allocAccountChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: labels,
+      datasets: [{ data: values, backgroundColor: colors, borderWidth: 1, borderColor: '#0f1729' }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right', labels: { color: '#94a3b8', font: { size: 10 }, usePointStyle: true, pointStyle: 'circle' } },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              var total = values.reduce(function(a, b) { return a + b; }, 0);
+              var pct = (ctx.raw / total * 100).toFixed(1);
+              return ctx.label + ': ' + fmt(ctx.raw) + ' (' + pct + '%)';
+            }
+          }
+        }
+      }
+    }
+  });
 }

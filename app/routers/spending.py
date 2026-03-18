@@ -316,3 +316,56 @@ def budget_vs_actual(month: Optional[str] = None):
         "days_in": days_in,
         "days_total": days_total,
     }
+
+
+@router.get("/trends")
+def spending_trends(months: int = 3, top: int = 6):
+    """Monthly spending for top N categories over last N months."""
+    from collections import defaultdict
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cutoff = date.today().replace(day=1) - timedelta(days=months * 31)
+        cur.execute(
+            "SELECT DATE_TRUNC('month', t.posted)::date AS m, "
+            "COALESCE(c.name, 'Uncategorized') AS cat, c.color, "
+            "SUM(ABS(t.amount)) "
+            "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
+            "WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE "
+            "AND t.posted >= %s AND c.name NOT IN ('Credit Card Pay', 'Transfer') "
+            "GROUP BY m, cat, c.color ORDER BY m ASC, 4 DESC", (cutoff,))
+        rows = cur.fetchall()
+    finally:
+        db_put(conn)
+
+    # Find top categories by total spend
+    cat_totals = defaultdict(float)
+    cat_colors = {}
+    for r in rows:
+        cat_totals[r[1]] += float(r[3])
+        cat_colors[r[1]] = r[2] or '#475569'
+
+    top_cats = sorted(cat_totals, key=cat_totals.get, reverse=True)[:top]
+
+    # Build monthly series per category
+    all_months = sorted(set(r[0].strftime('%Y-%m') for r in rows))
+    series = {}
+    for r in rows:
+        cat = r[1]
+        if cat in top_cats:
+            m = r[0].strftime('%Y-%m')
+            if cat not in series:
+                series[cat] = {"color": cat_colors[cat], "data": {}}
+            series[cat]["data"][m] = float(r[3])
+
+    return {
+        "months": all_months,
+        "categories": [
+            {
+                "name": cat,
+                "color": cat_colors[cat],
+                "values": [series.get(cat, {}).get("data", {}).get(m, 0) for m in all_months]
+            }
+            for cat in top_cats
+        ]
+    }
