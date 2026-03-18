@@ -92,9 +92,17 @@ function renderCashFlow(monthly) {
   rev.forEach(function(m) {
     var net = m.income - m.spending;
     var nc = net >= 0 ? '#86efac' : '#fca5a5';
+    // Compute date range for drill-down
+    var parts = m.month.split('-');
+    var yr = parseInt(parts[0]), mo = parseInt(parts[1]);
+    var from = m.month + '-01';
+    var lastDay = new Date(yr, mo, 0).getDate();
+    var to = m.month + '-' + String(lastDay).padStart(2, '0');
+    var drillInc = "drillDown({from:\'" + from + "\',to:\'" + to + "\',type:\'credit\'})";
+    var drillSpend = "drillDown({from:\'" + from + "\',to:\'" + to + "\',type:\'debit\'})";
     html += '<tr><td style="color:#64748b">' + m.month + '</td>'
-      + '<td style="text-align:right;color:#86efac">' + fmt(m.income) + '</td>'
-      + '<td style="text-align:right;color:#fca5a5">' + fmt(m.spending) + '</td>'
+      + '<td style="text-align:right"><a style="color:#86efac;cursor:pointer;text-decoration:underline" onclick="' + drillInc + '">' + fmt(m.income) + '</a></td>'
+      + '<td style="text-align:right"><a style="color:#fca5a5;cursor:pointer;text-decoration:underline" onclick="' + drillSpend + '">' + fmt(m.spending) + '</a></td>'
       + '<td style="text-align:right;color:' + nc + ';font-weight:600">' + fmt(net) + '</td></tr>';
   });
   html += '</tbody></table></div>';
