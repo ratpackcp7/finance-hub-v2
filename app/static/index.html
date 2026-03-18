@@ -331,6 +331,7 @@
   <a data-page="history" onclick="showPage('history')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>History</a>
   <a data-page="insights" onclick="showPage('insights')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Insights</a>
   <a data-page="flow" onclick="showPage('flow')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Money Flow</a>
+  <a data-page="compare" onclick="showPage('compare')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Compare</a>
   <a data-page="spending" onclick="showPage('spending')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Spending</a>
   <a data-page="transactions" onclick="showPage('transactions')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>Transactions</a>
   <div class="sb-section">Manage</div>
@@ -375,6 +376,38 @@
   </div>
   <div class="card" id="dash-sankey-card" style="display:none"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem"><div class="card-title" style="margin:0" id="sankey-title">Money Flow — This Month</div><div class="date-range-row" style="margin:0;gap:.35rem"><button class="quick-btn active" onclick="setSankeyRange('this-month',this)">This Month</button><button class="quick-btn" onclick="setSankeyRange('last-month',this)">Last Month</button><button class="quick-btn" onclick="setSankeyRange('3-months',this)">3 Months</button><button class="quick-btn" onclick="setSankeyRange('ytd',this)">YTD</button></div></div><div id="sankey-wrap" style="width:100%;overflow-x:auto"></div></div>
   <div class="card"><div class="card-title">Recent Syncs</div><div id="sync-log-list"><p class="empty">Loading...</p></div></div>
+</div>
+<div class="page" id="page-compare">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem">
+    <h2 style="font-size:1.1rem;font-weight:600;color:#f8fafc;margin:0">Period Comparison</h2>
+    <div style="display:flex;gap:.3rem">
+      <button class="quick-btn active" onclick="setComparePreset('mom')">Month vs Month</button>
+      <button class="quick-btn" onclick="setComparePreset('yoy')">Year over Year</button>
+      <button class="quick-btn" onclick="setComparePreset('qtd')">Quarter vs Quarter</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:1rem">
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-end">
+      <div style="flex:1;min-width:200px">
+        <div style="font-size:.72rem;font-weight:600;color:#3b82f6;text-transform:uppercase;margin-bottom:.4rem">Period A (current)</div>
+        <div style="display:flex;gap:.4rem">
+          <div class="field" style="margin:0;flex:1"><label>From</label><input type="date" id="cmp-a-start"></div>
+          <div class="field" style="margin:0;flex:1"><label>To</label><input type="date" id="cmp-a-end"></div>
+        </div>
+      </div>
+      <div style="flex:1;min-width:200px">
+        <div style="font-size:.72rem;font-weight:600;color:#f59e0b;text-transform:uppercase;margin-bottom:.4rem">Period B (comparison)</div>
+        <div style="display:flex;gap:.4rem">
+          <div class="field" style="margin:0;flex:1"><label>From</label><input type="date" id="cmp-b-start"></div>
+          <div class="field" style="margin:0;flex:1"><label>To</label><input type="date" id="cmp-b-end"></div>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="runComparison()" style="height:36px">🔍 Compare</button>
+    </div>
+  </div>
+
+  <div id="cmp-results"><p class="empty">Select two periods and click Compare.</p></div>
 </div>
 <div class="page" id="page-spending">
   <div class="date-range-row">
@@ -953,22 +986,22 @@
     </div>
   </div>
 </div>
-<script src="/static/js/core.js?v=1773875358"></script>
-<script src="/static/js/sync.js?v=1773875358"></script>
-<script src="/static/js/dashboard.js?v=1773875358"></script>
-<script src="/static/js/history.js?v=1773875358"></script>
-<script src="/static/js/insights.js?v=1773875358"></script>
-<script src="/static/js/sankey.js?v=1773875358"></script>
-<script src="/static/js/spending.js?v=1773875358"></script>
-<script src="/static/js/transactions.js?v=1773875358"></script>
-<script src="/static/js/transfers.js?v=1773875358"></script>
-<script src="/static/js/ai_categorize.js?v=1773875358"></script>
-<script src="/static/js/rules.js?v=1773875358"></script>
-<script src="/static/js/settings.js?v=1773875358"></script>
-<script src="/static/js/subscriptions.js?v=1773875358"></script>
-<script src="/static/js/imports.js?v=1773875358"></script>
-<script src="/static/js/reconcile.js?v=1773875358"></script>
-<script src="/static/js/feedback.js?v=1773875358"></script>
+<script src="/static/js/core.js?v=1773875512"></script>
+<script src="/static/js/sync.js?v=1773875512"></script>
+<script src="/static/js/dashboard.js?v=1773875512"></script>
+<script src="/static/js/history.js?v=1773875512"></script>
+<script src="/static/js/insights.js?v=1773875512"></script>
+<script src="/static/js/sankey.js?v=1773875512"></script>
+<script src="/static/js/spending.js?v=1773875512"></script>
+<script src="/static/js/transactions.js?v=1773875512"></script>
+<script src="/static/js/transfers.js?v=1773875512"></script>
+<script src="/static/js/ai_categorize.js?v=1773875512"></script>
+<script src="/static/js/rules.js?v=1773875512"></script>
+<script src="/static/js/settings.js?v=1773875512"></script>
+<script src="/static/js/subscriptions.js?v=1773875512"></script>
+<script src="/static/js/imports.js?v=1773875512"></script>
+<script src="/static/js/reconcile.js?v=1773875512"></script>
+<script src="/static/js/feedback.js?v=1773875512"></script>
 
 <!-- Feedback FAB -->
 <!-- Account Detail Modal -->
@@ -1170,13 +1203,14 @@
   </div>
 </div>
 
-<script src="/static/js/manual_entry.js?v=1773875358"></script>
-<script src="/static/js/account_detail.js?v=1773875358"></script>
-<script src="/static/js/splits.js?v=1773875358"></script>
-<script src="/static/js/tags.js?v=1773875358"></script>
-<script src="/static/js/bills.js?v=1773875358"></script>
+<script src="/static/js/manual_entry.js?v=1773875512"></script>
+<script src="/static/js/account_detail.js?v=1773875512"></script>
+<script src="/static/js/splits.js?v=1773875512"></script>
+<script src="/static/js/tags.js?v=1773875512"></script>
+<script src="/static/js/bills.js?v=1773875512"></script>
 <script src="/static/js/goals.js"></script>
 <script src="/static/js/review.js"></script>
 <script src="/static/js/bulk.js"></script>
+<script src="/static/js/compare.js"></script>
 </body>
 </html>

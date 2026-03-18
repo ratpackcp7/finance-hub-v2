@@ -61,6 +61,7 @@ from routers.goals import router as goals_router
 from routers.review import router as review_router
 from routers.digest import router as digest_router
 from routers.bulk import router as bulk_router
+from routers.compare import router as compare_router
 
 app.include_router(accounts_router)
 app.include_router(transactions_router)
@@ -84,6 +85,7 @@ app.include_router(goals_router)
 app.include_router(review_router)
 app.include_router(digest_router)
 app.include_router(bulk_router)
+app.include_router(compare_router)
 
 
 @app.get("/")
