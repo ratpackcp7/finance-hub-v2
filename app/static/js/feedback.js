@@ -28,7 +28,7 @@ async function submitFeedback() {
     setTimeout(() => { btn.textContent = 'Submit'; btn.className = 'btn btn-primary'; btn.disabled = false; }, 1500);
     loadFeedbackList();
   } catch(e) {
-    alert('Error: ' + e.message);
+    toast('Error: ' + e.message,'error');
     btn.textContent = 'Submit'; btn.className = 'btn btn-primary'; btn.disabled = false;
   }
 }
@@ -51,5 +51,5 @@ async function loadFeedbackList() {
 }
 async function deleteFb(id) {
   try { await api('/api/feedback/' + id, {method:'DELETE'}); loadFeedbackList(); }
-  catch(e) { alert('Error: ' + e.message); }
+  catch(e) { toast('Error: ' + e.message,'error'); }
 }

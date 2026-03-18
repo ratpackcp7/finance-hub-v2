@@ -107,7 +107,16 @@
     
 
     /* ═══ BOTTOM NAV ═══ */
-    .bottom-nav{display:flex;position:fixed;bottom:0;left:0;right:0;width:100%;background:#0a0d14;border-top:1px solid #1e2530;z-index:999;padding:.25rem 0;transform:translateZ(0);-webkit-transform:translateZ(0);will-change:transform;contain:layout style}
+    .bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;width:100%;background:#0a0d14;border-top:1px solid #1e2530;z-index:999;padding:.25rem 0;transform:translateZ(0);-webkit-transform:translateZ(0);will-change:transform;contain:layout style}
+    /* ═══ MORE OVERLAY ═══ */
+    .more-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:flex-end;justify-content:center}
+    .more-overlay.open{display:flex}
+    .more-sheet{background:#161b27;border-top:1px solid #1e2530;border-radius:16px 16px 0 0;width:100%;max-width:500px;padding:1.2rem 1rem;padding-bottom:max(1.2rem,env(safe-area-inset-bottom))}
+    .more-sheet-title{font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:#475569;margin-bottom:.75rem;padding:0 .25rem}
+    .more-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem}
+    .more-item{display:flex;flex-direction:column;align-items:center;gap:.3rem;padding:.75rem .5rem;border-radius:10px;background:#0f1117;border:1px solid #1e2530;color:#94a3b8;font-size:.72rem;cursor:pointer;text-decoration:none;-webkit-tap-highlight-color:transparent;transition:background .15s,color .15s}
+    .more-item:active,.more-item:hover{background:#1e2530;color:#f8fafc}
+    .more-item svg{width:22px;height:22px}
     .mobile-only{display:none!important}
     .txn-toolbar{display:none}
 
@@ -122,6 +131,7 @@
 
       /* Bottom nav — mobile overrides */
       .bottom-nav{
+        display:flex!important;
         padding-bottom:max(.25rem,env(safe-area-inset-bottom))
       }
       .bottom-nav a{
@@ -133,7 +143,8 @@
         -webkit-touch-callout:none;
         touch-action:manipulation
       }
-      .bottom-nav a.active{color:#3b82f6}
+      .bottom-nav a.active{color:#3b82f6;position:relative}
+      .bottom-nav a.active::before{content:'';position:absolute;top:2px;left:50%;transform:translateX(-50%);width:20px;height:3px;border-radius:2px;background:#3b82f6}
       .bottom-nav a:active{color:#60a5fa}
       .bnav-icon{display:flex;align-items:center;justify-content:center;width:24px;height:24px;pointer-events:none}
       .bottom-nav a span{pointer-events:none}
@@ -215,34 +226,74 @@
       .ai-row-head>:nth-child(2){display:none}
 
       /* Budget row */
-      .budget-row{grid-template-columns:90px 1fr 65px 45px;font-size:.75rem}
+      .budget-row{grid-template-columns:110px 1fr auto;gap:.4rem;font-size:.75rem}
+      .budget-pct{display:none}
+
+      /* Dupe review: stack comparison cards */
+      .dupe-compare{grid-template-columns:1fr!important}
 
       /* Date range compact */
       .date-range-row{gap:.35rem}
       .date-range-row input{width:115px}
-      .quick-btn{padding:.35rem .5rem;font-size:.72rem}
+      .quick-btn{padding:.5rem .75rem;font-size:.76rem;min-height:40px;display:inline-flex;align-items:center;justify-content:center}
 
       /* Bar rows compact */
-      .bar-row{grid-template-columns:100px 1fr 65px;font-size:.75rem}
+      .bar-row{grid-template-columns:90px 1fr 60px;font-size:.75rem}
+      .bar-label{font-size:.72rem}
 
       /* Feedback FAB above bottom nav */
       .feedback-fab{bottom:5rem}
 
-      /* Transfer rows */
-      .transfer-row{grid-template-columns:1fr 40px;gap:.5rem}
-      .transfer-row .transfer-side:nth-child(2){display:none}
+      /* Transfer rows — stacked on mobile (show BOTH sides) */
+      .transfer-row{grid-template-columns:1fr!important;gap:.4rem}
+      .transfer-row .transfer-side{display:block!important}
+      .transfer-row .transfer-side:nth-child(2){display:block!important}
+      .transfer-row>div:last-child{display:flex;justify-content:flex-end;padding-top:.3rem}
 
       /* Settings page */
       .card{padding:1rem}
+      /* Tables: scroll overflow everywhere */
+      #page-settings table,#batch-list table,#csv-preview-area table,#recon-active-card table,#recon-history table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
 
       /* Table scroll (rules, subscriptions) */
       #page-rules table{display:block;overflow-x:auto}
       #page-rules .btn-sm{padding:.3rem .5rem;font-size:.7rem;min-height:30px}
-      #page-subscriptions table{display:block;overflow-x:auto}
+      /* Subscriptions: card layout on mobile */
+      #subs-list table thead{display:none}
+      #subs-list table{border-spacing:0 .5rem;display:block}
+      #subs-list table tbody{display:flex;flex-direction:column;gap:.5rem}
+      #subs-list table tbody tr{display:grid;grid-template-columns:1fr auto;gap:.15rem .5rem;background:#161b27;border:1px solid #1e2530;border-radius:10px;padding:.8rem .9rem}
+      #subs-list table tbody td{padding:0;border:none;background:transparent!important}
+      #subs-list table tbody td:nth-child(1){grid-column:1;grid-row:1;font-weight:600;font-size:.84rem}
+      #subs-list table tbody td:nth-child(2){grid-column:2;grid-row:1;text-align:right}
+      #subs-list table tbody td:nth-child(3){grid-column:2;grid-row:2;text-align:right;font-size:.75rem}
+      #subs-list table tbody td:nth-child(4){grid-column:1;grid-row:2;font-size:.72rem;color:#64748b}
+      #subs-list table tbody td:nth-child(5){display:none}
+      #subs-list table tbody td:nth-child(6){display:none}
 
       /* Sync log */
       #sync-log-list table{display:block;overflow-x:auto;font-size:.72rem}
     }
+  
+
+    /* ═══ TOAST NOTIFICATIONS ═══ */
+    .toast-container{position:fixed;top:1rem;left:50%;transform:translateX(-50%);z-index:2000;display:flex;flex-direction:column;gap:.5rem;pointer-events:none;max-width:min(420px,90vw)}
+    .toast{pointer-events:auto;padding:.7rem 1rem;border-radius:8px;font-size:.82rem;color:#f8fafc;box-shadow:0 4px 16px rgba(0,0,0,.5);animation:toastIn .25s ease-out,toastOut .3s ease-in forwards;animation-delay:0s,2.8s;display:flex;align-items:center;gap:.5rem}
+    .toast-error{background:#7f1d1d;border:1px solid #991b1b}
+    .toast-success{background:#14532d;border:1px solid #166534}
+    .toast-info{background:#1e3a5f;border:1px solid #1d4ed8}
+    @keyframes toastIn{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes toastOut{from{opacity:1}to{opacity:0}}
+
+    /* ═══ CUSTOM CONFIRM MODAL ═══ */
+    .confirm-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1500;align-items:center;justify-content:center}
+    .confirm-bg.open{display:flex}
+    .confirm-box{background:#161b27;border:1px solid #1e2530;border-radius:12px;padding:1.4rem;width:min(380px,90vw)}
+    .confirm-msg{font-size:.88rem;color:#e2e8f0;margin-bottom:1.2rem;line-height:1.5}
+    .confirm-actions{display:flex;gap:.5rem;justify-content:flex-end}
+
+    /* ═══ FILTER ACTIVE BADGE ═══ */
+    .filter-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;border-radius:999px;background:#3b82f6;color:#fff;font-size:.65rem;font-weight:700;padding:0 4px;margin-left:.3rem;line-height:1}
   
   </style>
 </head>
@@ -439,12 +490,22 @@
   <a data-page="dashboard" class="active"><span class="bnav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span><span>Home</span></a>
   <a data-page="spending"><span class="bnav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span><span>Spend</span></a>
   <a data-page="transactions"><span class="bnav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></span><span>Txns</span></a>
-  <a data-page="rules"><span class="bnav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></span><span>Rules</span></a>
   <a data-page="settings"><span class="bnav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span>Setup</span></a>
-  <a data-page="subscriptions"><span class="bnav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span><span>Subs</span></a>
-  <a data-page="imports"><span class="bnav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span><span>Import</span></a>
-  <a data-page="reconcile"><span class="bnav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span><span>Recon</span></a>
+  <a id="more-tab" onclick="toggleMoreMenu(event)"><span class="bnav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg></span><span>More</span></a>
 </nav>
+
+<!-- More menu overlay -->
+<div class="more-overlay" id="more-overlay" onclick="closeMoreMenu(event)">
+  <div class="more-sheet" onclick="event.stopPropagation()">
+    <div class="more-sheet-title">More</div>
+    <div class="more-grid">
+      <a class="more-item" onclick="moreNav('rules')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>Rules</a>
+      <a class="more-item" onclick="moreNav('subscriptions')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>Subs</a>
+      <a class="more-item" onclick="moreNav('imports')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Import</a>
+      <a class="more-item" onclick="moreNav('reconcile')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Recon</a>
+    </div>
+  </div>
+</div>
 <script src="/static/js/core.js"></script>
 <script src="/static/js/sync.js"></script>
 <script src="/static/js/dashboard.js"></script>
@@ -489,6 +550,20 @@
 
 
 
+
+<!-- Toast container -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- Custom confirm dialog -->
+<div class="confirm-bg" id="confirm-dialog">
+  <div class="confirm-box">
+    <div class="confirm-msg" id="confirm-msg"></div>
+    <div class="confirm-actions">
+      <button class="btn btn-ghost" id="confirm-cancel">Cancel</button>
+      <button class="btn btn-danger" id="confirm-ok">Confirm</button>
+    </div>
+  </div>
+</div>
 
 </body>
 </html>

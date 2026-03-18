@@ -7,13 +7,99 @@ const fmtDate=s=>s?s.slice(0,10):'—';
 async function api(path,opts={}){const r=await fetch(path,{headers:{'Content-Type':'application/json'},...opts});if(!r.ok)throw new Error(await r.text());return r.json();}
 function esc(s){if(s==null)return'';const d=document.createElement('div');d.textContent=String(s);return d.innerHTML;}
 
-function closeModal(id){$(id).classList.remove('open');}
-function openModal(id){$(id).classList.add('open');}
+function closeModal(id){$(id).classList.remove('open');if(!document.querySelector('.modal-bg.open'))document.body.style.overflow='';}
+function openModal(id){$(id).classList.add('open');document.body.style.overflow='hidden';}
+
+// ── Toast notifications (replaces alert()) ──
+function toast(msg,type='info'){const c=$('toast-container');if(!c)return;const t=document.createElement('div');t.className='toast toast-'+type;t.textContent=msg;c.appendChild(t);setTimeout(()=>{if(t.parentNode)t.remove();},3200);}
+
+// ── Custom confirm (replaces confirm()) ──
+function customConfirm(msg,onOk,okLabel,okClass){
+  const bg=$('confirm-dialog'),m=$('confirm-msg'),ok=$('confirm-ok'),cn=$('confirm-cancel');
+  m.textContent=msg;
+  ok.textContent=okLabel||'Confirm';
+  ok.className=okClass||'btn btn-danger';
+  bg.classList.add('open');
+  document.body.style.overflow='hidden';
+  function cleanup(){bg.classList.remove('open');if(!document.querySelector('.modal-bg.open'))document.body.style.overflow='';ok.onclick=null;cn.onclick=null;bg.onclick=null;}
+  ok.onclick=function(){cleanup();onOk();};
+  cn.onclick=function(){cleanup();};
+  bg.onclick=function(e){if(e.target===bg)cleanup();};
+}
 
 // ── Navigation ──
-document.querySelectorAll('nav a[data-page]').forEach(a=>{a.addEventListener('click',()=>showPage(a.dataset.page));});
-function showPage(name){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.querySelectorAll('nav a[data-page]').forEach(a=>a.classList.remove('active'));$(`page-${name}`).classList.add('active');document.querySelector(`nav a[data-page="${name}"]`)?.classList.add('active');
-document.querySelectorAll('.bottom-nav a').forEach(a=>a.classList.toggle('active',a.dataset.page===name));if(name==='dashboard'){loadDashboard();loadSankey();}if(name==='spending')loadSpending();if(name==='transactions'){loadCategories();loadAccounts();loadTxns();}if(name==='rules'){loadRules();loadCategories();}if(name==='settings'){loadAccountsSettings();loadCategoriesSettings();loadBudgetSettings();}if(name==='subscriptions')loadSubscriptions();if(name==='imports'){loadImportsPage();loadCsvAccounts();}if(name==='reconcile'){loadReconAccounts();loadReconHistory();}}
+// Only bind top nav links (not bottom-nav, which uses its own handler)
+document.querySelectorAll('nav:first-of-type a[data-page]').forEach(a=>{a.addEventListener('click',()=>showPage(a.dataset.page));});
+
+// Pages reachable from the "More" menu (not in bottom nav)
+const MORE_PAGES = new Set(['rules','subscriptions','imports','reconcile']);
+
+function showPage(name){
+  // Close More overlay if open
+  var mo=$('more-overlay');if(mo)mo.classList.remove('open');
+
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  // Top nav active state
+  document.querySelectorAll('nav:first-of-type a[data-page]').forEach(a=>a.classList.remove('active'));
+  var topLink=document.querySelector('nav:first-of-type a[data-page="'+name+'"]');
+  if(topLink)topLink.classList.add('active');
+  $('page-'+name).classList.add('active');
+
+  // Bottom nav active state
+  document.querySelectorAll('.bottom-nav a[data-page]').forEach(a=>a.classList.toggle('active',a.dataset.page===name));
+  // Highlight "More" tab when on a secondary page
+  var moreTab=$('more-tab');
+  if(moreTab)moreTab.classList.toggle('active',MORE_PAGES.has(name));
+
+  // Page loaders
+  if(name==='dashboard'){loadDashboard();loadSankey();}
+  if(name==='spending')loadSpending();
+  if(name==='transactions'){loadCategories();loadAccounts();loadTxns();}
+  if(name==='rules'){loadRules();loadCategories();}
+  if(name==='settings'){loadAccountsSettings();loadCategoriesSettings();loadBudgetSettings();}
+  if(name==='subscriptions')loadSubscriptions();
+  if(name==='imports'){loadImportsPage();loadCsvAccounts();}
+  if(name==='reconcile'){loadReconAccounts();loadReconHistory();}
+}
+
+// ── More menu ──
+function toggleMoreMenu(e){
+  if(e)e.preventDefault();
+  var mo=$('more-overlay');
+  if(mo)mo.classList.toggle('open');
+}
+function closeMoreMenu(e){
+  // Close when tapping the backdrop
+  if(e&&e.target.id==='more-overlay')$('more-overlay').classList.remove('open');
+}
+function moreNav(page){
+  $('more-overlay').classList.remove('open');
+  showPage(page);
+}
+
+// ── Filter active indicator (mobile) ──
+function updateFilterBadge(){
+  const btn=$('filter-toggle-btn');if(!btn)return;
+  const s=$('t-search')?.value||$('t-search-m')?.value||'';
+  const a=$('t-account')?.value;
+  const c=$('t-category')?.value;
+  const f=$('t-from')?.value;
+  const t=$('t-to')?.value;
+  let count=0;
+  if(s)count++;if(a)count++;if(c)count++;if(f)count++;if(t)count++;
+  const existing=btn.querySelector('.filter-badge');
+  if(existing)existing.remove();
+  if(count>0){
+    const badge=document.createElement('span');
+    badge.className='filter-badge';
+    badge.textContent=count;
+    btn.appendChild(badge);
+    btn.innerHTML=btn.innerHTML.replace(/🔍 Filter|✕ Close/,count+' active');
+  } else {
+    const panel=$('filter-panel');
+    btn.textContent=panel&&panel.classList.contains('open')?'✕ Close':'🔍 Filter';
+  }
+}
 
 // ── Shared state ──
 let syncPollTimer=null;
@@ -33,9 +119,10 @@ async function loadAccounts(){accounts=await api('/api/accounts');const opts='<o
   var bn=document.getElementById('bottom-nav');
   if(!bn)return;
   bn.addEventListener('click',function(e){
-    e.preventDefault();
     var a=e.target.closest('a[data-page]');
-    if(a&&a.dataset.page)showPage(a.dataset.page);
+    if(!a)return;
+    e.preventDefault();
+    showPage(a.dataset.page);
   });
 })();
 
