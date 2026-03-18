@@ -1,5 +1,6 @@
 """
-Finance Hub v2 — FastAPI application
+Finance Hub v2 — FastAPI application (v3.4.0)
+P1: Audit trail + soft deletes
 """
 import csv
 import io
@@ -62,54 +63,46 @@ def run_migrations():
             id SERIAL PRIMARY KEY, type TEXT NOT NULL DEFAULT 'feature',
             message TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW(),
             notion_page_id TEXT DEFAULT NULL)""")
-        # Net worth history snapshots
         cur.execute("""CREATE TABLE IF NOT EXISTS balance_snapshots (
-            id SERIAL PRIMARY KEY,
-            snapshot_date DATE NOT NULL,
-            account_id TEXT NOT NULL,
-            account_name TEXT,
-            account_type TEXT,
-            balance NUMERIC(15,2),
-            created_at TIMESTAMPTZ DEFAULT NOW(),
-            UNIQUE(snapshot_date, account_id))""")
+            id SERIAL PRIMARY KEY, snapshot_date DATE NOT NULL, account_id TEXT NOT NULL,
+            account_name TEXT, account_type TEXT, balance NUMERIC(15,2),
+            created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(snapshot_date, account_id))""")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_snap_date ON balance_snapshots(snapshot_date)")
-        # Multi-user prep: household_id on all major tables (default='default')
         for tbl in ("accounts", "transactions", "categories", "payee_rules", "budgets", "feedback", "balance_snapshots"):
-            cur.execute(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS household_id TEXT NOT NULL DEFAULT 'default'")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_acct_household ON accounts(household_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_txn_household ON transactions(household_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_cat_household ON categories(household_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_rules_household ON payee_rules(household_id)")
-        
-        # ── Import batch tracking (P0 — import integrity) ──
+            cur.execute(f"ALTER TABLE {tbl} DROP COLUMN IF EXISTS household_id")
+        for idx in ("idx_acct_household", "idx_txn_household", "idx_cat_household", "idx_rules_household"):
+            cur.execute(f"DROP INDEX IF EXISTS {idx}")
         cur.execute("""CREATE TABLE IF NOT EXISTS import_batches (
-            id SERIAL PRIMARY KEY,
-            started_at TIMESTAMPTZ DEFAULT NOW(),
-            finished_at TIMESTAMPTZ,
-            status TEXT NOT NULL DEFAULT 'running',
-            source TEXT NOT NULL DEFAULT 'simplefin',
-            raw_payload JSONB,
-            accounts_seen INT DEFAULT 0,
-            txns_added INT DEFAULT 0,
-            txns_updated INT DEFAULT 0,
-            txns_skipped INT DEFAULT 0,
-            dupes_flagged INT DEFAULT 0,
-            error_message TEXT
-        )""")
+            id SERIAL PRIMARY KEY, started_at TIMESTAMPTZ DEFAULT NOW(), finished_at TIMESTAMPTZ,
+            status TEXT NOT NULL DEFAULT 'running', source TEXT NOT NULL DEFAULT 'simplefin',
+            raw_payload JSONB, accounts_seen INT DEFAULT 0, txns_added INT DEFAULT 0,
+            txns_updated INT DEFAULT 0, txns_skipped INT DEFAULT 0, dupes_flagged INT DEFAULT 0,
+            error_message TEXT)""")
         cur.execute("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS import_batch_id INT")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_txn_batch ON transactions(import_batch_id)")
         cur.execute("""CREATE TABLE IF NOT EXISTS duplicate_flags (
-            id SERIAL PRIMARY KEY,
-            txn_id TEXT NOT NULL,
-            duplicate_of TEXT NOT NULL,
-            reason TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'pending',
-            batch_id INT,
-            created_at TIMESTAMPTZ DEFAULT NOW()
-        )""")
+            id SERIAL PRIMARY KEY, txn_id TEXT NOT NULL, duplicate_of TEXT NOT NULL,
+            reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+            batch_id INT, created_at TIMESTAMPTZ DEFAULT NOW())""")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_dupe_status ON duplicate_flags(status)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_dupe_batch ON duplicate_flags(batch_id)")
-
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_dupe_pair ON duplicate_flags(txn_id, duplicate_of)")
+        # ── P1: Audit log (append-only) ──
+        cur.execute("""CREATE TABLE IF NOT EXISTS audit_log (
+            id SERIAL PRIMARY KEY,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            field_name TEXT,
+            old_value TEXT,
+            new_value TEXT,
+            source TEXT NOT NULL DEFAULT 'user',
+            created_at TIMESTAMPTZ DEFAULT NOW())""")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC)")
+        # ── P1: Soft delete columns ──
+        for tbl in ("categories", "payee_rules", "budgets", "feedback"):
+            cur.execute(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ")
         conn.commit(); logger.info("Migrations complete")
     except Exception as e: conn.rollback(); logger.error("Migration failed: %s", e)
     finally: db_put(conn)
@@ -122,7 +115,7 @@ async def lifespan(app: FastAPI):
     yield
     if _pool: _pool.closeall()
 
-app = FastAPI(title="Finance Hub", version="3.2.0", lifespan=lifespan)
+app = FastAPI(title="Finance Hub", version="3.4.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/")
@@ -130,6 +123,26 @@ def index(): return FileResponse(str(STATIC_DIR / "index.html"))
 
 @app.get("/health")
 def health(): return {"status": "ok", "ts": datetime.utcnow().isoformat()}
+
+# ── Helpers ──
+ACCOUNT_TYPES = {"checking", "savings", "credit", "investment", "retirement", "529", "utma", "hsa", "brokerage", "loan", "mortgage", "other"}
+
+def _csv_safe(val):
+    if val is None: return ""
+    s = str(val)
+    if s and s[0] in ('=', '+', '-', '@', '\t', '\r'): return "'" + s
+    return s
+
+def _audit(cur, entity_type: str, entity_id, action: str, source: str = "user",
+           field_name: str = None, old_value=None, new_value=None):
+    """Append to audit_log. All values stored as text."""
+    cur.execute(
+        """INSERT INTO audit_log (entity_type, entity_id, action, field_name, old_value, new_value, source)
+           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+        (entity_type, str(entity_id), action, field_name,
+         str(old_value) if old_value is not None else None,
+         str(new_value) if new_value is not None else None,
+         source))
 
 # ── Sync ──
 _sync_running = False
@@ -164,8 +177,6 @@ def sync_log(limit: int = 20):
     return [{"id": r[0], "started_at": r[1].isoformat() if r[1] else None, "finished_at": r[2].isoformat() if r[2] else None, "status": r[3], "accounts_seen": r[4], "txns_added": r[5], "txns_updated": r[6], "error_message": r[7]} for r in rows]
 
 # ── Accounts ──
-ACCOUNT_TYPES = {"checking", "savings", "credit", "investment", "retirement", "529", "utma", "hsa", "brokerage", "loan", "mortgage", "other"}
-
 @app.get("/api/accounts")
 def get_accounts():
     conn = db_conn()
@@ -187,7 +198,10 @@ def patch_account(acct_id: str, body: AccountPatch):
     try:
         cur = conn.cursor()
         if body.account_type is not None:
+            cur.execute("SELECT account_type FROM accounts WHERE id = %s", (acct_id,))
+            old = cur.fetchone()
             cur.execute("UPDATE accounts SET account_type = %s, updated_at = NOW() WHERE id = %s", (body.account_type, acct_id))
+            _audit(cur, "account", acct_id, "update", field_name="account_type", old_value=old[0] if old else None, new_value=body.account_type)
             conn.commit()
     finally: db_put(conn)
     return {"status": "ok"}
@@ -204,28 +218,16 @@ def net_worth():
     return {"groups": groups, "net_worth": sum(g["total"] for g in groups)}
 
 def _take_snapshot(conn):
-    """Record current account balances as a daily snapshot. Idempotent per date."""
-    cur = conn.cursor()
-    today = date.today()
-    cur.execute("""
-        INSERT INTO balance_snapshots (snapshot_date, account_id, account_name, account_type, balance)
-        SELECT %s, id, name, COALESCE(account_type, 'checking'), balance
-        FROM accounts WHERE hidden = FALSE AND balance IS NOT NULL
-        ON CONFLICT (snapshot_date, account_id) DO UPDATE SET
-            balance = EXCLUDED.balance,
-            account_name = EXCLUDED.account_name,
-            account_type = EXCLUDED.account_type
-    """, (today,))
-    count = cur.rowcount
-    conn.commit()
-    logger.info("Balance snapshot: %d accounts recorded for %s", count, today)
-    return count
+    cur = conn.cursor(); today = date.today()
+    cur.execute("""INSERT INTO balance_snapshots (snapshot_date, account_id, account_name, account_type, balance)
+        SELECT %s, id, name, COALESCE(account_type, 'checking'), balance FROM accounts WHERE hidden = FALSE AND balance IS NOT NULL
+        ON CONFLICT (snapshot_date, account_id) DO UPDATE SET balance = EXCLUDED.balance, account_name = EXCLUDED.account_name, account_type = EXCLUDED.account_type""", (today,))
+    count = cur.rowcount; conn.commit(); logger.info("Balance snapshot: %d accounts recorded for %s", count, today); return count
 
 @app.post("/api/snapshots/take")
 def take_snapshot():
     conn = db_conn()
-    try:
-        count = _take_snapshot(conn)
+    try: count = _take_snapshot(conn)
     finally: db_put(conn)
     return {"status": "ok", "accounts": count, "date": date.today().isoformat()}
 
@@ -233,27 +235,16 @@ def take_snapshot():
 def net_worth_history(months: int = 12):
     conn = db_conn()
     try:
-        cur = conn.cursor()
-        cutoff = date.today() - timedelta(days=months * 31)
-        cur.execute("""
-            SELECT snapshot_date, COALESCE(account_type, 'checking'), SUM(balance)
-            FROM balance_snapshots
-            WHERE snapshot_date >= %s
-            GROUP BY snapshot_date, account_type
-            ORDER BY snapshot_date ASC
-        """, (cutoff,))
+        cur = conn.cursor(); cutoff = date.today() - timedelta(days=months * 31)
+        cur.execute("SELECT snapshot_date, COALESCE(account_type, 'checking'), SUM(balance) FROM balance_snapshots WHERE snapshot_date >= %s GROUP BY snapshot_date, account_type ORDER BY snapshot_date ASC", (cutoff,))
         rows = cur.fetchall()
     finally: db_put(conn)
-    # Group by date
     by_date = {}
     for snap_date, acct_type, total in rows:
         d = snap_date.isoformat()
-        if d not in by_date:
-            by_date[d] = {"date": d, "groups": {}, "net_worth": 0}
-        by_date[d]["groups"][acct_type] = float(total)
-        by_date[d]["net_worth"] += float(total)
-    result = sorted(by_date.values(), key=lambda x: x["date"])
-    return {"history": result, "months": months}
+        if d not in by_date: by_date[d] = {"date": d, "groups": {}, "net_worth": 0}
+        by_date[d]["groups"][acct_type] = float(total); by_date[d]["net_worth"] += float(total)
+    return {"history": sorted(by_date.values(), key=lambda x: x["date"]), "months": months}
 
 # ── Transactions ──
 def _txn_filters(account_id=None, category_id=None, start_date=None, end_date=None, search=None, pending=None, exclude_transfers=False, txn_type=None):
@@ -279,21 +270,9 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
         filters, params = _txn_filters(account_id, category_id, start_date, end_date, search, pending, txn_type=txn_type)
         where = ("WHERE " + " AND ".join(filters)) if filters else ""
         if account_id:
-            cur.execute(f"""
-                WITH bal AS (
-                    SELECT id, SUM(amount) OVER (ORDER BY posted ASC, id ASC) AS running_balance
-                    FROM transactions WHERE account_id = %s
-                )
-                SELECT t.id, t.account_id, a.name, t.posted, t.amount, t.description, t.payee,
-                       t.category_id, c.name, t.category_manual, t.pending, t.notes, t.is_transfer,
-                       bal.running_balance
-                FROM transactions t
-                JOIN accounts a ON t.account_id = a.id
-                LEFT JOIN categories c ON t.category_id = c.id
-                LEFT JOIN bal ON t.id = bal.id
-                {where}
-                ORDER BY t.posted DESC, t.id
-                LIMIT %s OFFSET %s""", [account_id] + params + [limit, offset])
+            cur.execute(f"""WITH bal AS (SELECT id, SUM(amount) OVER (ORDER BY posted ASC, id ASC) AS running_balance FROM transactions WHERE account_id = %s)
+                SELECT t.id, t.account_id, a.name, t.posted, t.amount, t.description, t.payee, t.category_id, c.name, t.category_manual, t.pending, t.notes, t.is_transfer, bal.running_balance
+                FROM transactions t JOIN accounts a ON t.account_id = a.id LEFT JOIN categories c ON t.category_id = c.id LEFT JOIN bal ON t.id = bal.id {where} ORDER BY t.posted DESC, t.id LIMIT %s OFFSET %s""", [account_id] + params + [limit, offset])
         else:
             cur.execute(f"SELECT t.id, t.account_id, a.name, t.posted, t.amount, t.description, t.payee, t.category_id, c.name, t.category_manual, t.pending, t.notes, t.is_transfer, NULL as running_balance FROM transactions t JOIN accounts a ON t.account_id = a.id LEFT JOIN categories c ON t.category_id = c.id {where} ORDER BY t.posted DESC, t.id LIMIT %s OFFSET %s", params + [limit, offset])
         rows = cur.fetchall()
@@ -306,16 +285,14 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
 def export_transactions(account_id: Optional[str] = None, category_id: Optional[int] = None, start_date: Optional[date] = None, end_date: Optional[date] = None, search: Optional[str] = None):
     conn = db_conn()
     try:
-        cur = conn.cursor()
-        filters, params = _txn_filters(account_id, category_id, start_date, end_date, search)
+        cur = conn.cursor(); filters, params = _txn_filters(account_id, category_id, start_date, end_date, search)
         where = ("WHERE " + " AND ".join(filters)) if filters else ""
         cur.execute(f"SELECT t.posted, COALESCE(t.payee, t.description, ''), t.description, a.name, COALESCE(c.name, 'Uncategorized'), t.amount, t.is_transfer, t.notes FROM transactions t JOIN accounts a ON t.account_id = a.id LEFT JOIN categories c ON t.category_id = c.id {where} ORDER BY t.posted DESC, t.id", params)
         rows = cur.fetchall()
     finally: db_put(conn)
-    buf = io.StringIO()
-    w = csv.writer(buf)
+    buf = io.StringIO(); w = csv.writer(buf)
     w.writerow(["Date", "Payee", "Description", "Account", "Category", "Amount", "Transfer", "Notes"])
-    for r in rows: w.writerow([r[0].isoformat() if r[0] else "", r[1], r[2], r[3], r[4], f"{float(r[5]):.2f}" if r[5] is not None else "", "Yes" if r[6] else "", r[7] or ""])
+    for r in rows: w.writerow([r[0].isoformat() if r[0] else "", _csv_safe(r[1]), _csv_safe(r[2]), _csv_safe(r[3]), _csv_safe(r[4]), f"{float(r[5]):.2f}" if r[5] is not None else "", "Yes" if r[6] else "", _csv_safe(r[7] or "")])
     buf.seek(0)
     return StreamingResponse(buf, media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="finance_hub_{date.today().isoformat()}.csv"'})
 
@@ -329,12 +306,20 @@ def patch_transaction(txn_id: str, body: TxnPatch):
     conn = db_conn()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM transactions WHERE id = %s", (txn_id,))
-        if not cur.fetchone(): raise HTTPException(status_code=404, detail="Transaction not found")
+        cur.execute("SELECT category_id, payee, notes FROM transactions WHERE id = %s", (txn_id,))
+        old = cur.fetchone()
+        if not old: raise HTTPException(status_code=404, detail="Transaction not found")
+        old_cat, old_payee, old_notes = old
         updates, params = [], []
-        if body.category_id is not None: updates += ["category_id = %s", "category_manual = TRUE"]; params.append(body.category_id)
-        if body.payee is not None: updates.append("payee = %s"); params.append(body.payee)
-        if body.notes is not None: updates.append("notes = %s"); params.append(body.notes)
+        if body.category_id is not None:
+            updates += ["category_id = %s", "category_manual = TRUE"]; params.append(body.category_id)
+            _audit(cur, "transaction", txn_id, "update", field_name="category_id", old_value=old_cat, new_value=body.category_id)
+        if body.payee is not None:
+            updates.append("payee = %s"); params.append(body.payee)
+            _audit(cur, "transaction", txn_id, "update", field_name="payee", old_value=old_payee, new_value=body.payee)
+        if body.notes is not None:
+            updates.append("notes = %s"); params.append(body.notes)
+            _audit(cur, "transaction", txn_id, "update", field_name="notes", old_value=old_notes, new_value=body.notes)
         if not updates: return {"status": "no-op"}
         updates.append("updated_at = NOW()"); params.append(txn_id)
         cur.execute(f"UPDATE transactions SET {', '.join(updates)} WHERE id = %s", params); conn.commit()
@@ -347,12 +332,15 @@ def toggle_transfer(txn_id: str):
     conn = db_conn()
     try:
         cur = conn.cursor()
+        cur.execute("SELECT is_transfer FROM transactions WHERE id = %s", (txn_id,))
+        old = cur.fetchone()
+        if not old: raise HTTPException(status_code=404, detail="Transaction not found")
         cur.execute("UPDATE transactions SET is_transfer = NOT is_transfer, updated_at = NOW() WHERE id = %s RETURNING is_transfer", (txn_id,))
-        row = cur.fetchone()
-        if not row: raise HTTPException(status_code=404, detail="Transaction not found")
+        new_val = cur.fetchone()[0]
+        _audit(cur, "transaction", txn_id, "toggle_transfer", field_name="is_transfer", old_value=old[0], new_value=new_val)
         conn.commit()
     finally: db_put(conn)
-    return {"status": "ok", "is_transfer": row[0]}
+    return {"status": "ok", "is_transfer": new_val}
 
 @app.post("/api/transfers/detect")
 def detect_transfers(days_window: int = 3, amount_tolerance: float = 0.01):
@@ -373,17 +361,19 @@ def apply_transfers(body: TransferApplyRequest):
     try:
         cur = conn.cursor()
         for pair in body.pairs:
-            for txn_id in pair: cur.execute("UPDATE transactions SET is_transfer = TRUE, updated_at = NOW() WHERE id = %s", (txn_id,)); marked += 1
+            for txn_id in pair:
+                cur.execute("UPDATE transactions SET is_transfer = TRUE, updated_at = NOW() WHERE id = %s AND is_transfer = FALSE", (txn_id,))
+                if cur.rowcount: _audit(cur, "transaction", txn_id, "mark_transfer", source="user", field_name="is_transfer", old_value=False, new_value=True); marked += 1
         conn.commit()
     finally: db_put(conn)
     return {"marked": marked}
 
-# ── Categories ──
+# ── Categories (soft-delete aware) ──
 @app.get("/api/categories")
 def get_categories():
     conn = db_conn()
     try:
-        cur = conn.cursor(); cur.execute("SELECT id, name, color, group_name, is_income, sort_order FROM categories ORDER BY sort_order, name"); rows = cur.fetchall()
+        cur = conn.cursor(); cur.execute("SELECT id, name, color, group_name, is_income, sort_order FROM categories WHERE deleted_at IS NULL ORDER BY sort_order, name"); rows = cur.fetchall()
     finally: db_put(conn)
     return [{"id": r[0], "name": r[1], "color": r[2], "group": r[3], "is_income": r[4], "sort_order": r[5]} for r in rows]
 
@@ -403,13 +393,15 @@ def create_category(body: CategoryCreate):
 def delete_category(cat_id: int):
     conn = db_conn()
     try:
-        cur = conn.cursor(); cur.execute("SELECT name FROM categories WHERE id = %s", (cat_id,)); row = cur.fetchone()
+        cur = conn.cursor(); cur.execute("SELECT name FROM categories WHERE id = %s AND deleted_at IS NULL", (cat_id,)); row = cur.fetchone()
         if not row: raise HTTPException(status_code=404, detail="Category not found")
         if row[0] == "Uncategorized": raise HTTPException(status_code=400, detail="Cannot delete Uncategorized")
         cur.execute("UPDATE transactions SET category_id = NULL WHERE category_id = %s", (cat_id,))
-        cur.execute("DELETE FROM payee_rules WHERE category_id = %s", (cat_id,))
-        cur.execute("DELETE FROM budgets WHERE category_id = %s", (cat_id,))
-        cur.execute("DELETE FROM categories WHERE id = %s", (cat_id,)); conn.commit()
+        cur.execute("UPDATE payee_rules SET deleted_at = NOW() WHERE category_id = %s AND deleted_at IS NULL", (cat_id,))
+        cur.execute("UPDATE budgets SET deleted_at = NOW() WHERE category_id = %s AND deleted_at IS NULL", (cat_id,))
+        cur.execute("UPDATE categories SET deleted_at = NOW() WHERE id = %s", (cat_id,))
+        _audit(cur, "category", cat_id, "soft_delete", field_name="name", old_value=row[0])
+        conn.commit()
     finally: db_put(conn)
     return {"status": "ok"}
 
@@ -422,19 +414,21 @@ def rename_category(cat_id: int, body: CategoryRename):
     if not name: raise HTTPException(status_code=400, detail="Name required")
     conn = db_conn()
     try:
-        cur = conn.cursor(); cur.execute("SELECT name FROM categories WHERE id = %s", (cat_id,)); row = cur.fetchone()
+        cur = conn.cursor(); cur.execute("SELECT name FROM categories WHERE id = %s AND deleted_at IS NULL", (cat_id,)); row = cur.fetchone()
         if not row: raise HTTPException(status_code=404, detail="Category not found")
         if row[0] == "Uncategorized": raise HTTPException(status_code=400, detail="Cannot rename Uncategorized")
-        cur.execute("UPDATE categories SET name = %s WHERE id = %s", (name, cat_id)); conn.commit()
+        cur.execute("UPDATE categories SET name = %s WHERE id = %s", (name, cat_id))
+        _audit(cur, "category", cat_id, "rename", field_name="name", old_value=row[0], new_value=name)
+        conn.commit()
     finally: db_put(conn)
     return {"status": "ok", "name": name}
 
-# ── Payee Rules ──
+# ── Payee Rules (soft-delete aware) ──
 @app.get("/api/payee-rules")
 def get_payee_rules():
     conn = db_conn()
     try:
-        cur = conn.cursor(); cur.execute("SELECT r.id, r.match_pattern, r.payee_name, r.category_id, c.name, r.priority FROM payee_rules r LEFT JOIN categories c ON r.category_id = c.id ORDER BY r.priority DESC, r.id"); rows = cur.fetchall()
+        cur = conn.cursor(); cur.execute("SELECT r.id, r.match_pattern, r.payee_name, r.category_id, c.name, r.priority FROM payee_rules r LEFT JOIN categories c ON r.category_id = c.id WHERE r.deleted_at IS NULL ORDER BY r.priority DESC, r.id"); rows = cur.fetchall()
     finally: db_put(conn)
     return [{"id": r[0], "pattern": r[1], "payee_name": r[2], "category_id": r[3], "category": r[4], "priority": r[5]} for r in rows]
 
@@ -445,34 +439,36 @@ class PayeeRuleCreate(BaseModel):
 def create_payee_rule(body: PayeeRuleCreate):
     conn = db_conn()
     try:
-        cur = conn.cursor()
-        pattern = body.match_pattern.lower().strip()
-        # Dedup: skip if exact pattern already exists
-        cur.execute("SELECT id FROM payee_rules WHERE match_pattern = %s", (pattern,))
+        cur = conn.cursor(); pattern = body.match_pattern.lower().strip()
+        cur.execute("SELECT id FROM payee_rules WHERE match_pattern = %s AND deleted_at IS NULL", (pattern,))
         existing = cur.fetchone()
         if existing:
-            # Update category if different
             cur.execute("UPDATE payee_rules SET category_id = COALESCE(%s, category_id), payee_name = COALESCE(%s, payee_name) WHERE id = %s", (body.category_id, body.payee_name, existing[0]))
             new_id = existing[0]
         else:
             cur.execute("INSERT INTO payee_rules (match_pattern, payee_name, category_id, priority) VALUES (%s, %s, %s, %s) RETURNING id", (pattern, body.payee_name, body.category_id, body.priority))
             new_id = cur.fetchone()[0]
-        # Retroactively apply this rule to existing uncategorized transactions
-        search_pattern = pattern
         cur.execute("""UPDATE transactions SET category_id = %s, payee = COALESCE(%s, payee), updated_at = NOW()
             WHERE category_id IS NULL AND category_manual = FALSE
             AND (lower(description) LIKE %s OR lower(COALESCE(payee,'')) LIKE %s)""",
-            (body.category_id, body.payee_name, f"%{search_pattern}%", f"%{search_pattern}%"))
+            (body.category_id, body.payee_name, f"%{pattern}%", f"%{pattern}%"))
         retro = cur.rowcount
-        conn.commit()
-        logger.info("Rule %s (pattern=%s): retroactively categorized %d transactions", new_id, pattern, retro)
+        if retro > 0: _audit(cur, "payee_rule", new_id, "retroactive_apply", source="rule", field_name="transactions_categorized", new_value=retro)
+        conn.commit(); logger.info("Rule %s (pattern=%s): retroactively categorized %d transactions", new_id, pattern, retro)
     finally: db_put(conn)
     return {"id": new_id, "retroactive": retro}
 
 @app.delete("/api/payee-rules/{rule_id}")
 def delete_payee_rule(rule_id: int):
     conn = db_conn()
-    try: cur = conn.cursor(); cur.execute("DELETE FROM payee_rules WHERE id = %s", (rule_id,)); conn.commit()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT match_pattern FROM payee_rules WHERE id = %s AND deleted_at IS NULL", (rule_id,))
+        old = cur.fetchone()
+        if not old: raise HTTPException(status_code=404, detail="Rule not found")
+        cur.execute("UPDATE payee_rules SET deleted_at = NOW() WHERE id = %s", (rule_id,))
+        _audit(cur, "payee_rule", rule_id, "soft_delete", field_name="pattern", old_value=old[0])
+        conn.commit()
     finally: db_put(conn)
     return {"status": "ok"}
 
@@ -537,37 +533,21 @@ def spending_deltas(start_date: Optional[date] = None, end_date: Optional[date] 
     tc = sum(r["current"] for r in results); tp = sum(r["previous"] for r in results)
     return {"deltas": results, "totals": {"current": round(tc, 2), "previous": round(tp, 2), "delta": round(tc - tp, 2)}, "period": {"current": {"start": start_date.isoformat(), "end": end_date.isoformat()}, "previous": {"start": ps.isoformat(), "end": pe.isoformat()}}}
 
-
-# ── Spending Flow (Sankey data) ──
 @app.get("/api/spending/flow")
 def spending_flow(start_date: Optional[date] = None, end_date: Optional[date] = None):
-    """Returns income sources and spending categories for Sankey diagram."""
     now = datetime.now()
     if not start_date: start_date = date(now.year, now.month, 1)
     if not end_date: end_date = date(now.year, 12, 31) if now.month == 12 else date(now.year, now.month + 1, 1) - timedelta(days=1)
     conn = db_conn()
     try:
         cur = conn.cursor()
-        # Income by category
-        cur.execute("""SELECT COALESCE(c.name, 'Other Income'), c.color, SUM(t.amount)
-            FROM transactions t LEFT JOIN categories c ON t.category_id = c.id
-            WHERE t.amount > 0 AND t.pending = FALSE AND t.is_transfer = FALSE
-            AND t.posted >= %s AND t.posted <= %s
-            GROUP BY c.name, c.color ORDER BY 3 DESC""", (start_date, end_date))
+        cur.execute("""SELECT COALESCE(c.name, 'Other Income'), c.color, SUM(t.amount) FROM transactions t LEFT JOIN categories c ON t.category_id = c.id WHERE t.amount > 0 AND t.pending = FALSE AND t.is_transfer = FALSE AND t.posted >= %s AND t.posted <= %s GROUP BY c.name, c.color ORDER BY 3 DESC""", (start_date, end_date))
         income = [{"name": r[0], "color": r[1] or "#4ade80", "amount": float(r[2])} for r in cur.fetchall()]
-        # Spending by category
-        cur.execute("""SELECT COALESCE(c.name, 'Uncategorized'), c.color, SUM(ABS(t.amount))
-            FROM transactions t LEFT JOIN categories c ON t.category_id = c.id
-            WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE
-            AND t.posted >= %s AND t.posted <= %s
-            GROUP BY c.name, c.color ORDER BY 3 DESC""", (start_date, end_date))
+        cur.execute("""SELECT COALESCE(c.name, 'Uncategorized'), c.color, SUM(ABS(t.amount)) FROM transactions t LEFT JOIN categories c ON t.category_id = c.id WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE AND t.posted >= %s AND t.posted <= %s GROUP BY c.name, c.color ORDER BY 3 DESC""", (start_date, end_date))
         spending = [{"name": r[0], "color": r[1] or "#475569", "amount": float(r[2])} for r in cur.fetchall()]
     finally: db_put(conn)
-    total_in = sum(i["amount"] for i in income)
-    total_out = sum(s["amount"] for s in spending)
-    net = total_in - total_out
-    return {"income": income, "spending": spending, "total_income": total_in, "total_spending": total_out, "net": net,
-            "period": {"start": start_date.isoformat(), "end": end_date.isoformat()}}
+    total_in = sum(i["amount"] for i in income); total_out = sum(s["amount"] for s in spending)
+    return {"income": income, "spending": spending, "total_income": total_in, "total_spending": total_out, "net": total_in - total_out, "period": {"start": start_date.isoformat(), "end": end_date.isoformat()}}
 
 # ── Subscriptions ──
 @app.get("/api/subscriptions/detect")
@@ -591,16 +571,15 @@ def detect_subscriptions(min_months: int = 3, amount_tolerance_pct: float = 15):
         if avg < 20 or avg > 45: continue
         last = con[-1]
         subs.append({"payee": payee, "typical_amount": round(med, 2), "annual_cost": round(med * 12, 2), "frequency_days": round(avg, 0), "charge_count": len(con), "last_date": last["posted"].isoformat(), "last_amount": round(abs(last["amount"]), 2)})
-    subs.sort(key=lambda s: s["annual_cost"], reverse=True)
-    ta = sum(s["annual_cost"] for s in subs)
+    subs.sort(key=lambda s: s["annual_cost"], reverse=True); ta = sum(s["annual_cost"] for s in subs)
     return {"subscriptions": subs, "totals": {"annual": round(ta, 2), "monthly": round(ta / 12, 2)}}
 
-# ── Budgets ──
+# ── Budgets (soft-delete aware) ──
 @app.get("/api/budgets")
 def get_budgets():
     conn = db_conn()
     try:
-        cur = conn.cursor(); cur.execute("SELECT b.id, b.category_id, c.name, c.color, b.monthly_amount FROM budgets b JOIN categories c ON b.category_id = c.id ORDER BY c.sort_order, c.name"); rows = cur.fetchall()
+        cur = conn.cursor(); cur.execute("SELECT b.id, b.category_id, c.name, c.color, b.monthly_amount FROM budgets b JOIN categories c ON b.category_id = c.id WHERE b.deleted_at IS NULL AND c.deleted_at IS NULL ORDER BY c.sort_order, c.name"); rows = cur.fetchall()
     finally: db_put(conn)
     return [{"id": r[0], "category_id": r[1], "category": r[2], "color": r[3], "monthly_amount": float(r[4])} for r in rows]
 
@@ -611,7 +590,7 @@ class BudgetCreate(BaseModel):
 def create_or_update_budget(body: BudgetCreate):
     conn = db_conn()
     try:
-        cur = conn.cursor(); cur.execute("INSERT INTO budgets (category_id, monthly_amount) VALUES (%s, %s) ON CONFLICT (category_id) DO UPDATE SET monthly_amount = EXCLUDED.monthly_amount RETURNING id", (body.category_id, body.monthly_amount))
+        cur = conn.cursor(); cur.execute("INSERT INTO budgets (category_id, monthly_amount) VALUES (%s, %s) ON CONFLICT (category_id) DO UPDATE SET monthly_amount = EXCLUDED.monthly_amount, deleted_at = NULL RETURNING id", (body.category_id, body.monthly_amount))
         new_id = cur.fetchone()[0]; conn.commit()
     finally: db_put(conn)
     return {"id": new_id}
@@ -619,7 +598,14 @@ def create_or_update_budget(body: BudgetCreate):
 @app.delete("/api/budgets/{budget_id}")
 def delete_budget(budget_id: int):
     conn = db_conn()
-    try: cur = conn.cursor(); cur.execute("DELETE FROM budgets WHERE id = %s", (budget_id,)); conn.commit()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT category_id FROM budgets WHERE id = %s AND deleted_at IS NULL", (budget_id,))
+        old = cur.fetchone()
+        if not old: raise HTTPException(status_code=404, detail="Budget not found")
+        cur.execute("UPDATE budgets SET deleted_at = NOW() WHERE id = %s", (budget_id,))
+        _audit(cur, "budget", budget_id, "soft_delete", field_name="category_id", old_value=old[0])
+        conn.commit()
     finally: db_put(conn)
     return {"status": "ok"}
 
@@ -631,7 +617,7 @@ def budget_status(start_date: Optional[date] = None, end_date: Optional[date] = 
     conn = db_conn()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT b.id, b.category_id, c.name, c.color, c.group_name, b.monthly_amount FROM budgets b JOIN categories c ON b.category_id = c.id ORDER BY c.sort_order, c.name")
+        cur.execute("SELECT b.id, b.category_id, c.name, c.color, c.group_name, b.monthly_amount FROM budgets b JOIN categories c ON b.category_id = c.id WHERE b.deleted_at IS NULL AND c.deleted_at IS NULL ORDER BY c.sort_order, c.name")
         budgets = cur.fetchall()
         if not budgets: return {"budgets": [], "period": {"start": start_date.isoformat(), "end": end_date.isoformat()}}
         cur.execute("SELECT t.category_id, SUM(ABS(t.amount)) FROM transactions t WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE AND t.posted >= %s AND t.posted <= %s GROUP BY t.category_id", (start_date, end_date))
@@ -643,22 +629,17 @@ def budget_status(start_date: Optional[date] = None, end_date: Optional[date] = 
         results.append({"budget_id": b[0], "category_id": b[1], "category": b[2], "color": b[3], "group": b[4], "budget": ba, "spent": sp, "remaining": ba - sp, "pct": round((sp / ba * 100) if ba > 0 else 0, 1)})
     return {"budgets": results, "totals": {"budget": tb, "spent": ts, "remaining": tb - ts, "pct": round((ts / tb * 100) if tb > 0 else 0, 1)}, "period": {"start": start_date.isoformat(), "end": end_date.isoformat()}}
 
-# ── Feedback ──
+# ── Feedback (soft-delete aware) ──
 class FeedbackCreate(BaseModel):
-    type: str = "feature"  # bug, feature, feedback
-    message: str
+    type: str = "feature"; message: str
 
 @app.post("/api/feedback", status_code=201)
 def create_feedback(body: FeedbackCreate):
-    if not body.message.strip():
-        raise HTTPException(status_code=400, detail="Message required")
-    valid = {"bug", "feature", "feedback"}
-    fb_type = body.type if body.type in valid else "feedback"
+    if not body.message.strip(): raise HTTPException(status_code=400, detail="Message required")
+    valid = {"bug", "feature", "feedback"}; fb_type = body.type if body.type in valid else "feedback"
     conn = db_conn()
     try:
-        cur = conn.cursor()
-        cur.execute("INSERT INTO feedback (type, message) VALUES (%s, %s) RETURNING id, created_at",
-                    (fb_type, body.message.strip()))
+        cur = conn.cursor(); cur.execute("INSERT INTO feedback (type, message) VALUES (%s, %s) RETURNING id, created_at", (fb_type, body.message.strip()))
         row = cur.fetchone(); conn.commit()
     finally: db_put(conn)
     return {"id": row[0], "created_at": row[1].isoformat()}
@@ -667,129 +648,74 @@ def create_feedback(body: FeedbackCreate):
 def get_feedback():
     conn = db_conn()
     try:
-        cur = conn.cursor()
-        cur.execute("SELECT id, type, message, created_at, notion_page_id FROM feedback ORDER BY created_at DESC")
-        rows = cur.fetchall()
+        cur = conn.cursor(); cur.execute("SELECT id, type, message, created_at, notion_page_id FROM feedback WHERE deleted_at IS NULL ORDER BY created_at DESC"); rows = cur.fetchall()
     finally: db_put(conn)
-    return [{"id": r[0], "type": r[1], "message": r[2], "created_at": r[3].isoformat(),
-             "synced": r[4] is not None} for r in rows]
+    return [{"id": r[0], "type": r[1], "message": r[2], "created_at": r[3].isoformat(), "synced": r[4] is not None} for r in rows]
 
 @app.delete("/api/feedback/{fb_id}")
 def delete_feedback(fb_id: int):
     conn = db_conn()
     try:
-        cur = conn.cursor(); cur.execute("DELETE FROM feedback WHERE id = %s", (fb_id,)); conn.commit()
+        cur = conn.cursor()
+        cur.execute("UPDATE feedback SET deleted_at = NOW() WHERE id = %s AND deleted_at IS NULL", (fb_id,))
+        _audit(cur, "feedback", fb_id, "soft_delete")
+        conn.commit()
     finally: db_put(conn)
     return {"status": "ok"}
-
 
 # ── Import Batches ──
 @app.get("/api/import-batches")
 def list_import_batches(limit: int = 20):
     conn = db_conn()
     try:
-        cur = conn.cursor()
-        cur.execute("""SELECT id, started_at, finished_at, status, source,
-                              accounts_seen, txns_added, txns_updated, txns_skipped,
-                              dupes_flagged, error_message
-                       FROM import_batches ORDER BY id DESC LIMIT %s""", (limit,))
+        cur = conn.cursor(); cur.execute("SELECT id, started_at, finished_at, status, source, accounts_seen, txns_added, txns_updated, txns_skipped, dupes_flagged, error_message FROM import_batches ORDER BY id DESC LIMIT %s", (limit,))
         rows = cur.fetchall()
     finally: db_put(conn)
-    return [{"id": r[0],
-             "started_at": r[1].isoformat() if r[1] else None,
-             "finished_at": r[2].isoformat() if r[2] else None,
-             "status": r[3], "source": r[4],
-             "accounts_seen": r[5], "txns_added": r[6],
-             "txns_updated": r[7], "txns_skipped": r[8],
-             "dupes_flagged": r[9], "error_message": r[10]} for r in rows]
+    return [{"id": r[0], "started_at": r[1].isoformat() if r[1] else None, "finished_at": r[2].isoformat() if r[2] else None, "status": r[3], "source": r[4], "accounts_seen": r[5], "txns_added": r[6], "txns_updated": r[7], "txns_skipped": r[8], "dupes_flagged": r[9], "error_message": r[10]} for r in rows]
 
 @app.get("/api/import-batches/{batch_id}")
 def get_import_batch(batch_id: int, include_txns: bool = False):
     conn = db_conn()
     try:
         cur = conn.cursor()
-        cur.execute("""SELECT id, started_at, finished_at, status, source,
-                              accounts_seen, txns_added, txns_updated, txns_skipped,
-                              dupes_flagged, error_message
-                       FROM import_batches WHERE id = %s""", (batch_id,))
+        cur.execute("SELECT id, started_at, finished_at, status, source, accounts_seen, txns_added, txns_updated, txns_skipped, dupes_flagged, error_message FROM import_batches WHERE id = %s", (batch_id,))
         row = cur.fetchone()
         if not row: raise HTTPException(status_code=404, detail="Batch not found")
-        batch = {"id": row[0],
-                 "started_at": row[1].isoformat() if row[1] else None,
-                 "finished_at": row[2].isoformat() if row[2] else None,
-                 "status": row[3], "source": row[4],
-                 "accounts_seen": row[5], "txns_added": row[6],
-                 "txns_updated": row[7], "txns_skipped": row[8],
-                 "dupes_flagged": row[9], "error_message": row[10]}
+        batch = {"id": row[0], "started_at": row[1].isoformat() if row[1] else None, "finished_at": row[2].isoformat() if row[2] else None, "status": row[3], "source": row[4], "accounts_seen": row[5], "txns_added": row[6], "txns_updated": row[7], "txns_skipped": row[8], "dupes_flagged": row[9], "error_message": row[10]}
         txns = []
         if include_txns:
-            cur.execute("""SELECT t.id, t.account_id, a.name, t.posted, t.amount,
-                                  t.description, t.payee, t.category_id, c.name, t.pending
-                           FROM transactions t
-                           JOIN accounts a ON t.account_id = a.id
-                           LEFT JOIN categories c ON t.category_id = c.id
-                           WHERE t.import_batch_id = %s
-                           ORDER BY t.posted DESC""", (batch_id,))
-            txns = [{"id": r[0], "account_id": r[1], "account_name": r[2],
-                     "posted": r[3].isoformat() if r[3] else None,
-                     "amount": float(r[4]) if r[4] else 0,
-                     "description": r[5], "payee": r[6],
-                     "category_id": r[7], "category": r[8],
-                     "pending": r[9]} for r in cur.fetchall()]
-        dupes = []
-        cur.execute("""SELECT d.id, d.txn_id, d.duplicate_of, d.reason, d.status, d.created_at
-                       FROM duplicate_flags d WHERE d.batch_id = %s ORDER BY d.created_at""",
-                    (batch_id,))
-        dupes = [{"id": r[0], "txn_id": r[1], "duplicate_of": r[2],
-                  "reason": r[3], "status": r[4],
-                  "created_at": r[5].isoformat() if r[5] else None} for r in cur.fetchall()]
+            cur.execute("SELECT t.id, t.account_id, a.name, t.posted, t.amount, t.description, t.payee, t.category_id, c.name, t.pending FROM transactions t JOIN accounts a ON t.account_id = a.id LEFT JOIN categories c ON t.category_id = c.id WHERE t.import_batch_id = %s ORDER BY t.posted DESC", (batch_id,))
+            txns = [{"id": r[0], "account_id": r[1], "account_name": r[2], "posted": r[3].isoformat() if r[3] else None, "amount": float(r[4]) if r[4] else 0, "description": r[5], "payee": r[6], "category_id": r[7], "category": r[8], "pending": r[9]} for r in cur.fetchall()]
+        cur.execute("SELECT d.id, d.txn_id, d.duplicate_of, d.reason, d.status, d.created_at FROM duplicate_flags d WHERE d.batch_id = %s ORDER BY d.created_at", (batch_id,))
+        dupes = [{"id": r[0], "txn_id": r[1], "duplicate_of": r[2], "reason": r[3], "status": r[4], "created_at": r[5].isoformat() if r[5] else None} for r in cur.fetchall()]
     finally: db_put(conn)
-    batch["transactions"] = txns
-    batch["duplicates"] = dupes
-    return batch
+    batch["transactions"] = txns; batch["duplicates"] = dupes; return batch
 
 # ── Duplicate Flags ──
 @app.get("/api/duplicates")
 def list_duplicates(status: Optional[str] = "pending", limit: int = 100):
     conn = db_conn()
     try:
-        cur = conn.cursor()
-        where = "WHERE d.status = %s" if status else ""
-        params = [status] if status else []
-        cur.execute(f"""
-            SELECT d.id, d.txn_id, d.duplicate_of, d.reason, d.status,
-                   d.batch_id, d.created_at,
+        cur = conn.cursor(); where = "WHERE d.status = %s" if status else ""; params = [status] if status else []
+        cur.execute(f"""SELECT d.id, d.txn_id, d.duplicate_of, d.reason, d.status, d.batch_id, d.created_at,
                    t1.posted, t1.amount, t1.description, t1.payee, a1.name,
                    t2.posted, t2.amount, t2.description, t2.payee, a2.name
-            FROM duplicate_flags d
-            LEFT JOIN transactions t1 ON d.txn_id = t1.id
-            LEFT JOIN accounts a1 ON t1.account_id = a1.id
-            LEFT JOIN transactions t2 ON d.duplicate_of = t2.id
-            LEFT JOIN accounts a2 ON t2.account_id = a2.id
-            {where}
-            ORDER BY d.created_at DESC LIMIT %s
-        """, params + [limit])
+            FROM duplicate_flags d LEFT JOIN transactions t1 ON d.txn_id = t1.id LEFT JOIN accounts a1 ON t1.account_id = a1.id
+            LEFT JOIN transactions t2 ON d.duplicate_of = t2.id LEFT JOIN accounts a2 ON t2.account_id = a2.id
+            {where} ORDER BY d.created_at DESC LIMIT %s""", params + [limit])
         rows = cur.fetchall()
     finally: db_put(conn)
-    return [{"id": r[0], "status": r[4], "batch_id": r[5],
-             "created_at": r[6].isoformat() if r[6] else None,
-             "reason": r[3],
-             "new_txn": {"id": r[1], "posted": r[7].isoformat() if r[7] else None,
-                         "amount": float(r[8]) if r[8] else 0,
-                         "description": r[9], "payee": r[10], "account": r[11]},
-             "existing_txn": {"id": r[2], "posted": r[12].isoformat() if r[12] else None,
-                              "amount": float(r[13]) if r[13] else 0,
-                              "description": r[14], "payee": r[15], "account": r[16]}}
-            for r in rows]
+    return [{"id": r[0], "status": r[4], "batch_id": r[5], "created_at": r[6].isoformat() if r[6] else None, "reason": r[3],
+             "new_txn": {"id": r[1], "posted": r[7].isoformat() if r[7] else None, "amount": float(r[8]) if r[8] else 0, "description": r[9], "payee": r[10], "account": r[11]},
+             "existing_txn": {"id": r[2], "posted": r[12].isoformat() if r[12] else None, "amount": float(r[13]) if r[13] else 0, "description": r[14], "payee": r[15], "account": r[16]}} for r in rows]
 
 class DupeResolveRequest(BaseModel):
-    action: str  # "keep_both" | "remove_new" | "remove_existing"
+    action: str
 
 @app.post("/api/duplicates/{flag_id}/resolve")
 def resolve_duplicate(flag_id: int, body: DupeResolveRequest):
     valid_actions = {"keep_both", "remove_new", "remove_existing"}
-    if body.action not in valid_actions:
-        raise HTTPException(status_code=400, detail="action must be one of: keep_both, remove_new, remove_existing")
+    if body.action not in valid_actions: raise HTTPException(status_code=400, detail="action must be one of: keep_both, remove_new, remove_existing")
     conn = db_conn()
     try:
         cur = conn.cursor()
@@ -799,8 +725,12 @@ def resolve_duplicate(flag_id: int, body: DupeResolveRequest):
         new_txn_id, existing_txn_id = row
         if body.action == "remove_new":
             cur.execute("DELETE FROM transactions WHERE id = %s", (new_txn_id,))
+            _audit(cur, "transaction", new_txn_id, "delete_as_duplicate", source="user", field_name="duplicate_of", new_value=existing_txn_id)
         elif body.action == "remove_existing":
             cur.execute("DELETE FROM transactions WHERE id = %s", (existing_txn_id,))
+            _audit(cur, "transaction", existing_txn_id, "delete_as_duplicate", source="user", field_name="duplicate_of", new_value=new_txn_id)
+        else:
+            _audit(cur, "duplicate_flag", flag_id, "keep_both", source="user", field_name="txn_ids", new_value=f"{new_txn_id},{existing_txn_id}")
         cur.execute("UPDATE duplicate_flags SET status = %s WHERE id = %s", (body.action, flag_id))
         conn.commit()
     finally: db_put(conn)
@@ -810,17 +740,10 @@ def resolve_duplicate(flag_id: int, body: DupeResolveRequest):
 def duplicate_stats():
     conn = db_conn()
     try:
-        cur = conn.cursor()
-        cur.execute("SELECT status, COUNT(*) FROM duplicate_flags GROUP BY status")
-        rows = cur.fetchall()
+        cur = conn.cursor(); cur.execute("SELECT status, COUNT(*) FROM duplicate_flags GROUP BY status"); rows = cur.fetchall()
     finally: db_put(conn)
     stats = {r[0]: r[1] for r in rows}
-    return {"pending": stats.get("pending", 0),
-            "keep_both": stats.get("keep_both", 0),
-            "remove_new": stats.get("remove_new", 0),
-            "remove_existing": stats.get("remove_existing", 0),
-            "total": sum(stats.values())}
-
+    return {"pending": stats.get("pending", 0), "keep_both": stats.get("keep_both", 0), "remove_new": stats.get("remove_new", 0), "remove_existing": stats.get("remove_existing", 0), "total": sum(stats.values())}
 
 # ── AI Categorization ──
 OPENROUTER_KEY_FILE = Path("/run/secrets/openrouter_key")
@@ -841,7 +764,7 @@ def _call_openrouter(prompt: str) -> str:
 def _build_ai_prompt(txns, categories):
     cl = "\n".join("  - " + c["name"] for c in sorted(categories, key=lambda x: x["name"]))
     ls = [f"  {i+1}. [{t.get('posted','')}] {t.get('payee') or t.get('description') or 'Unknown'} | ${float(t.get('amount',0)):.2f}" for i, t in enumerate(txns)]
-    return f"You are a personal finance categorizer.\n\nAVAILABLE CATEGORIES:\n{cl}\n\nTRANSACTIONS:\n" + "\n".join(ls) + '\n\nRules:\n- Match each to exactly one category.\n- If nothing fits, use "Uncategorized".\n- Return ONLY a JSON array.\n- Format: [{"index": 1, "category": "Groceries", "confidence": "high"}, ...]\n- Confidence: "high", "medium", "low"'
+    return f"You are a personal finance categorizer.\n\nAVAILABLE CATEGORIES:\n{cl}\n\nTRANSACTIONS:\n" + "\n".join(ls) + '\n\nRules:\n- Match each to exactly one category.\n- If nothing fits, use "Uncategorized".\n- Return ONLY a JSON array.\n- Format: [{{"index": 1, "category": "Groceries", "confidence": "high"}}, ...]\n- Confidence: "high", "medium", "low"'
 
 def _parse_ai_response(raw):
     raw = raw.strip()
@@ -857,9 +780,9 @@ def categorize_suggest(limit: int = 100):
         rows = cur.fetchall()
         if not rows: return {"suggestions": [], "message": "No uncategorized transactions found"}
         txns = [{"id": r[0], "posted": r[1].isoformat() if r[1] else None, "amount": float(r[2]) if r[2] else 0, "description": r[3], "payee": r[4]} for r in rows]
-        cur.execute("SELECT id, name, color FROM categories ORDER BY name")
+        cur.execute("SELECT id, name, color FROM categories WHERE deleted_at IS NULL ORDER BY name")
         categories = [{"id": r[0], "name": r[1], "color": r[2]} for r in cur.fetchall()]
-        cur.execute("SELECT match_pattern, category_id, c.name, payee_name FROM payee_rules r LEFT JOIN categories c ON r.category_id = c.id ORDER BY r.priority DESC, r.id")
+        cur.execute("SELECT match_pattern, category_id, c.name, payee_name FROM payee_rules r LEFT JOIN categories c ON r.category_id = c.id WHERE r.deleted_at IS NULL ORDER BY r.priority DESC, r.id")
         rules = [{"pattern": r[0], "category_id": r[1], "category": r[2], "payee_name": r[3]} for r in cur.fetchall()]
     finally: db_put(conn)
     rule_results, unknowns = [], []
@@ -892,11 +815,29 @@ def categorize_apply(body: CategorizeApplyRequest):
     try:
         cur = conn.cursor()
         for item in body.items:
+            cur.execute("SELECT category_id FROM transactions WHERE id = %s", (item.txn_id,))
+            old = cur.fetchone()
             cur.execute("UPDATE transactions SET category_id = %s, category_manual = TRUE, updated_at = NOW() WHERE id = %s", (item.category_id, item.txn_id)); applied += 1
+            _audit(cur, "transaction", item.txn_id, "ai_categorize", source="ai", field_name="category_id", old_value=old[0] if old else None, new_value=item.category_id)
             if item.make_rule and item.payee:
                 pattern = item.payee.lower().strip()
-                cur.execute("SELECT id FROM payee_rules WHERE match_pattern = %s", (pattern,))
-                if not cur.fetchone(): cur.execute("INSERT INTO payee_rules (match_pattern, payee_name, category_id, priority) VALUES (%s, %s, %s, 0)", (pattern, item.payee, item.category_id)); rules_created += 1
+                cur.execute("SELECT id FROM payee_rules WHERE match_pattern = %s AND deleted_at IS NULL", (pattern,))
+                if not cur.fetchone():
+                    cur.execute("INSERT INTO payee_rules (match_pattern, payee_name, category_id, priority) VALUES (%s, %s, %s, 0)", (pattern, item.payee, item.category_id)); rules_created += 1
         conn.commit()
     finally: db_put(conn)
     return {"applied": applied, "rules_created": rules_created}
+
+# ── Audit Log API ──
+@app.get("/api/audit-log")
+def get_audit_log(entity_type: Optional[str] = None, entity_id: Optional[str] = None, limit: int = 100):
+    conn = db_conn()
+    try:
+        cur = conn.cursor(); f = []; p = []
+        if entity_type: f.append("entity_type = %s"); p.append(entity_type)
+        if entity_id: f.append("entity_id = %s"); p.append(entity_id)
+        where = ("WHERE " + " AND ".join(f)) if f else ""
+        cur.execute(f"SELECT id, entity_type, entity_id, action, field_name, old_value, new_value, source, created_at FROM audit_log {where} ORDER BY created_at DESC LIMIT %s", p + [limit])
+        rows = cur.fetchall()
+    finally: db_put(conn)
+    return [{"id": r[0], "entity_type": r[1], "entity_id": r[2], "action": r[3], "field": r[4], "old": r[5], "new": r[6], "source": r[7], "at": r[8].isoformat() if r[8] else None} for r in rows]

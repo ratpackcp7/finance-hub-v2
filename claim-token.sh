@@ -24,7 +24,7 @@ if [ -z "$ACCESS_URL" ]; then
 fi
 
 if echo "$ACCESS_URL" | grep -q '"error"'; then
-  echo "✗ Claim failed: $ACCESS_URL"
+  echo "✗ Claim failed (error response from SimpleFIN)"
   exit 1
 fi
 
@@ -32,7 +32,8 @@ echo "✓ Access URL claimed successfully"
 
 mkdir -p secrets
 echo "$ACCESS_URL" > secrets/simplefin_access_url
-echo "✓ Written to secrets/simplefin_access_url"
+chmod 600 secrets/simplefin_access_url
+echo "✓ Written to secrets/simplefin_access_url (mode 600)"
 echo ""
-echo "Access URL (keep this safe):"
-echo "$ACCESS_URL"
+echo "⚠  Access URL contains credentials — it is NOT printed here."
+echo "   View it with: cat secrets/simplefin_access_url"
