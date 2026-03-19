@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from db import _audit, db_conn, db_put
+from db import _audit, db_read, db_transaction
 
 router = APIRouter(prefix="/api/merchants", tags=["merchants"])
 
@@ -13,9 +13,7 @@ router = APIRouter(prefix="/api/merchants", tags=["merchants"])
 def list_merchants(search: Optional[str] = None, min_count: int = 1,
                    limit: int = 200, offset: int = 0):
     """List all unique payee/merchant names with transaction counts and totals."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         filters = ["t.pending = FALSE"]
         params = []
 
@@ -54,8 +52,6 @@ def list_merchants(search: Optional[str] = None, min_count: int = 1,
                 HAVING COUNT(*) >= %s
             ) sub""", params + [min_count])
         total = cur.fetchone()[0]
-    finally:
-        db_put(conn)
 
     return {
         "total": total,
@@ -85,9 +81,7 @@ def rename_merchant(body: MerchantRename):
     if old == new:
         return {"status": "no-op", "updated": 0}
 
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         # Update payee field
         cur.execute(
             "UPDATE transactions SET payee = %s, updated_at = NOW() "
@@ -98,9 +92,6 @@ def rename_merchant(body: MerchantRename):
 
         _audit(cur, "merchant", old, "rename", source="user",
                field_name="payee", old_value=old, new_value=new)
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok", "updated": updated, "old_name": old, "new_name": new}
 
 
@@ -124,9 +115,7 @@ def merge_merchants(body: MerchantMerge):
     if not sources:
         return {"status": "no-op", "updated": 0, "rules_created": 0}
 
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         total_updated = 0
 
         for old_name in sources:
@@ -153,10 +142,6 @@ def merge_merchants(body: MerchantMerge):
                         "INSERT INTO payee_rules (match_pattern, payee_name, priority) "
                         "VALUES (%s, %s, 0)", (pattern, target))
                     rules_created += 1
-
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok", "updated": total_updated, "rules_created": rules_created,
             "target": target, "sources": sources}
 
@@ -165,9 +150,7 @@ def merge_merchants(body: MerchantMerge):
 def find_duplicate_merchants(threshold: float = 0.8, min_count: int = 2, limit: int = 50):
     """Find merchants that look like duplicates based on name similarity.
     Uses simple prefix/substring matching — not fuzzy matching."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         # Get all merchants with sufficient count
         cur.execute(
             """SELECT COALESCE(t.payee, t.description) as merchant, COUNT(*) as cnt
@@ -179,8 +162,6 @@ def find_duplicate_merchants(threshold: float = 0.8, min_count: int = 2, limit: 
                HAVING COUNT(*) >= %s
                ORDER BY 2 DESC""", (min_count,))
         merchants = [(r[0], r[1]) for r in cur.fetchall()]
-    finally:
-        db_put(conn)
 
     # Simple grouping: find merchants that share a common prefix (first 8 chars, lowercase)
     from collections import defaultdict

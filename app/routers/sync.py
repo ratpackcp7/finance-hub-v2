@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
-from db import db_conn, db_put
+from db import db_read, get_pool
 from syncer import run_sync
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ def _take_snapshot_after_sync(conn):
 def _do_sync(start_date: Optional[date] = None):
     global _sync_running
     _sync_running = True
-    conn = db_conn()
+    conn = get_pool().getconn()
     try:
         result = run_sync(conn, start_date)
         if result.get("status") == "ok":
@@ -47,8 +47,6 @@ def _do_sync(start_date: Optional[date] = None):
                 logger.error("Balance snapshot failed after manual sync: %s", e)
     except Exception as e:
         logger.error("Manual sync failed: %s", e)
-    finally:
-        db_put(conn)
         _sync_running = False
 
 
@@ -71,15 +69,11 @@ def sync_status():
 
 @router.get("/log")
 def sync_log(limit: int = 20):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cur.execute(
             "SELECT id, started_at, finished_at, status, accounts_seen, txns_added, txns_updated, error_message "
             "FROM sync_log ORDER BY id DESC LIMIT %s", (limit,))
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     return [{"id": r[0], "started_at": r[1].isoformat() if r[1] else None,
              "finished_at": r[2].isoformat() if r[2] else None,
              "status": r[3], "accounts_seen": r[4], "txns_added": r[5],

@@ -4,23 +4,19 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from db import _audit, db_conn, db_put
+from db import _audit, db_read, db_transaction
 
 router = APIRouter(prefix="/api", tags=["imports"])
 
 
 @router.get("/import-batches")
 def list_import_batches(limit: int = 20):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cur.execute(
             "SELECT id, started_at, finished_at, status, source, accounts_seen, txns_added, "
             "txns_updated, txns_skipped, dupes_flagged, error_message "
             "FROM import_batches ORDER BY id DESC LIMIT %s", (limit,))
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     return [{"id": r[0], "started_at": r[1].isoformat() if r[1] else None,
              "finished_at": r[2].isoformat() if r[2] else None,
              "status": r[3], "source": r[4], "accounts_seen": r[5], "txns_added": r[6],
@@ -30,9 +26,7 @@ def list_import_batches(limit: int = 20):
 
 @router.get("/import-batches/{batch_id}")
 def get_import_batch(batch_id: int, include_txns: bool = False):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cur.execute(
             "SELECT id, started_at, finished_at, status, source, accounts_seen, txns_added, "
             "txns_updated, txns_skipped, dupes_flagged, error_message "
@@ -64,8 +58,6 @@ def get_import_batch(batch_id: int, include_txns: bool = False):
         dupes = [{"id": r[0], "txn_id": r[1], "duplicate_of": r[2], "reason": r[3],
                   "status": r[4], "created_at": r[5].isoformat() if r[5] else None}
                  for r in cur.fetchall()]
-    finally:
-        db_put(conn)
     batch["transactions"] = txns
     batch["duplicates"] = dupes
     return batch
@@ -75,9 +67,7 @@ def get_import_batch(batch_id: int, include_txns: bool = False):
 
 @router.get("/duplicates")
 def list_duplicates(status: Optional[str] = "pending", limit: int = 100):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         where = "WHERE d.status = %s" if status else ""
         params = [status] if status else []
         cur.execute(
@@ -90,8 +80,6 @@ def list_duplicates(status: Optional[str] = "pending", limit: int = 100):
                 {where} ORDER BY d.created_at DESC LIMIT %s""",
             params + [limit])
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     return [{"id": r[0], "status": r[4], "batch_id": r[5],
              "created_at": r[6].isoformat() if r[6] else None, "reason": r[3],
              "new_txn": {"id": r[1], "posted": r[7].isoformat() if r[7] else None,
@@ -111,9 +99,7 @@ def resolve_duplicate(flag_id: int, body: DupeResolveRequest):
     valid_actions = {"keep_both", "remove_new", "remove_existing"}
     if body.action not in valid_actions:
         raise HTTPException(status_code=400, detail="action must be one of: keep_both, remove_new, remove_existing")
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute("SELECT txn_id, duplicate_of FROM duplicate_flags WHERE id = %s AND status = 'pending'",
                     (flag_id,))
         row = cur.fetchone()
@@ -132,21 +118,14 @@ def resolve_duplicate(flag_id: int, body: DupeResolveRequest):
             _audit(cur, "duplicate_flag", flag_id, "keep_both", source="user",
                    field_name="txn_ids", new_value=f"{new_txn_id},{existing_txn_id}")
         cur.execute("UPDATE duplicate_flags SET status = %s WHERE id = %s", (body.action, flag_id))
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok", "action": body.action}
 
 
 @router.get("/duplicates/stats")
 def duplicate_stats():
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cur.execute("SELECT status, COUNT(*) FROM duplicate_flags GROUP BY status")
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     stats = {r[0]: r[1] for r in rows}
     return {"pending": stats.get("pending", 0), "keep_both": stats.get("keep_both", 0),
             "remove_new": stats.get("remove_new", 0), "remove_existing": stats.get("remove_existing", 0),

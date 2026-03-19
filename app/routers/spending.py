@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter
 
-from db import db_conn, db_put
+from db import db_read, db_transaction
 from filters import spending_filters, SQL_CASE_INCOME, SQL_CASE_SPENDING
 
 router = APIRouter(prefix="/api/spending", tags=["spending"])
@@ -14,9 +14,7 @@ router = APIRouter(prefix="/api/spending", tags=["spending"])
 @router.get("/by-category")
 def spending_by_category(start_date: Optional[date] = None, end_date: Optional[date] = None,
                          account_id: Optional[str] = None):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         f = spending_filters(); p = []
         if start_date: f.append("t.posted >= %s"); p.append(start_date)
         if end_date: f.append("t.posted <= %s"); p.append(end_date)
@@ -26,8 +24,6 @@ def spending_by_category(start_date: Optional[date] = None, end_date: Optional[d
             f"FROM spending_items t LEFT JOIN categories c ON t.category_id = c.id "
             f"WHERE {' AND '.join(f)} GROUP BY c.name, c.color, c.group_name ORDER BY 4 DESC", p)
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     return [{"category": r[0], "color": r[1] or "#475569", "group": r[2],
              "total": float(r[3]), "count": r[4]} for r in rows]
 
@@ -35,9 +31,7 @@ def spending_by_category(start_date: Optional[date] = None, end_date: Optional[d
 @router.get("/by-payee")
 def spending_by_payee(start_date: Optional[date] = None, end_date: Optional[date] = None,
                       limit: int = 25, account_id: Optional[str] = None):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         f = spending_filters(); p = []
         if start_date: f.append("posted >= %s"); p.append(start_date)
         if end_date: f.append("posted <= %s"); p.append(end_date)
@@ -46,16 +40,12 @@ def spending_by_payee(start_date: Optional[date] = None, end_date: Optional[date
             f"SELECT COALESCE(t.payee, t.description, 'Unknown'), SUM(ABS(t.amount)), COUNT(*) "
             f"FROM transactions t LEFT JOIN categories c ON t.category_id = c.id WHERE {' AND '.join(f)} GROUP BY 1 ORDER BY 2 DESC LIMIT %s", p + [limit])
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     return [{"payee": r[0], "total": float(r[1]), "count": r[2]} for r in rows]
 
 
 @router.get("/over-time")
 def spending_over_time(months: int = 6, account_id: Optional[str] = None):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         f = ["t.pending = FALSE", "t.is_transfer = FALSE"]; p = []
         if account_id: f.append("t.account_id = %s"); p.append(account_id)
         # Income: only count positive txns in income categories (Paycheck, Other Income, Investment)
@@ -67,8 +57,6 @@ def spending_over_time(months: int = 6, account_id: Optional[str] = None):
             f"FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
             f"WHERE {' AND '.join(f)} GROUP BY 1 ORDER BY 1 DESC LIMIT %s", p + [months])
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     return [{"month": r[0], "spending": float(r[1]), "income": float(r[2])} for r in rows]
 
 
@@ -83,9 +71,7 @@ def spending_deltas(start_date: Optional[date] = None, end_date: Optional[date] 
     pd = (end_date - start_date).days + 1
     pe = start_date - timedelta(days=1)
     ps = pe - timedelta(days=pd - 1)
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cur.execute(
             "SELECT COALESCE(c.name, 'Uncategorized'), c.color, SUM(ABS(t.amount)) "
             "FROM spending_items t LEFT JOIN categories c ON t.category_id = c.id "
@@ -102,8 +88,6 @@ def spending_deltas(start_date: Optional[date] = None, end_date: Optional[date] 
             "AND t.posted >= %s AND t.posted <= %s GROUP BY c.name",
             (ps, pe))
         prior = {r[0]: float(r[1]) for r in cur.fetchall()}
-    finally:
-        db_put(conn)
     results = []
     for cat in sorted(set(list(current.keys()) + list(prior.keys()))):
         ct = current.get(cat, {}).get("total", 0)
@@ -129,9 +113,7 @@ def spending_flow(start_date: Optional[date] = None, end_date: Optional[date] = 
     if not end_date:
         end_date = (date(now.year, 12, 31) if now.month == 12
                     else date(now.year, now.month + 1, 1) - timedelta(days=1))
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cur.execute(
             "SELECT COALESCE(c.name, 'Other Income'), c.color, SUM(t.amount) "
             "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
@@ -148,8 +130,6 @@ def spending_flow(start_date: Optional[date] = None, end_date: Optional[date] = 
             "AND t.posted >= %s AND t.posted <= %s GROUP BY c.name, c.color ORDER BY 3 DESC",
             (start_date, end_date))
         spending = [{"name": r[0], "color": r[1] or "#475569", "amount": float(r[2])} for r in cur.fetchall()]
-    finally:
-        db_put(conn)
     total_in = sum(i["amount"] for i in income)
     total_out = sum(s["amount"] for s in spending)
     return {"income": income, "spending": spending, "total_income": total_in, "total_spending": total_out,
@@ -163,9 +143,7 @@ sub_router = APIRouter(prefix="/api/subscriptions", tags=["spending"])
 
 @sub_router.get("/detect")
 def detect_subscriptions(min_months: int = 3, amount_tolerance_pct: float = 15):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cur.execute(
             "SELECT COALESCE(t.payee, t.description), t.posted, t.amount "
             "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
@@ -173,8 +151,6 @@ def detect_subscriptions(min_months: int = 3, amount_tolerance_pct: float = 15):
             "AND COALESCE(c.name, '') NOT IN ('Credit Card Pay', 'Transfer') "
             "AND COALESCE(t.payee, t.description) IS NOT NULL ORDER BY 1, t.posted")
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     by_payee = defaultdict(list)
     for label, posted, amount in rows:
         by_payee[label].append({"posted": posted, "amount": float(amount)})
@@ -213,9 +189,7 @@ def budget_progress(month: Optional[str] = None):
     yr, mo = int(parts[0]), int(parts[1])
     start_date = date(yr, mo, 1)
     end_date = date(yr + (1 if mo == 12 else 0), (1 if mo == 12 else mo + 1), 1)
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cur.execute(
             "SELECT b.id, b.category_id, c.name, c.color, b.monthly_amount "
             "FROM budgets b JOIN categories c ON b.category_id = c.id "
@@ -228,8 +202,6 @@ def budget_progress(month: Optional[str] = None):
             "AND t.posted >= %s AND t.posted < %s "
             "GROUP BY t.category_id", (start_date, end_date))
         actuals = {r[0]: float(r[1]) for r in cur.fetchall()}
-    finally:
-        db_put(conn)
     import calendar
     days_in_month = calendar.monthrange(yr, mo)[1]
     today = date.today()
@@ -266,9 +238,7 @@ def budget_vs_actual(month: Optional[str] = None):
     start = date(yr, mo, 1)
     end = date(yr, mo, last_day)
 
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         # Get all budgets
         cur.execute(
             "SELECT b.id, b.category_id, c.name, c.color, b.monthly_amount "
@@ -285,8 +255,6 @@ def budget_vs_actual(month: Optional[str] = None):
             "AND t.posted >= %s AND t.posted <= %s "
             "GROUP BY t.category_id", (start, end))
         actuals = dict(cur.fetchall())
-    finally:
-        db_put(conn)
 
     results = []
     total_budget = 0
@@ -333,9 +301,7 @@ def budget_vs_actual(month: Optional[str] = None):
 def spending_trends(months: int = 3, top: int = 6):
     """Monthly spending for top N categories over last N months."""
     from collections import defaultdict
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cutoff = date.today().replace(day=1) - timedelta(days=months * 31)
         cur.execute(
             "SELECT DATE_TRUNC('month', t.posted)::date AS m, "
@@ -346,8 +312,6 @@ def spending_trends(months: int = 3, top: int = 6):
             "AND t.posted >= %s AND c.name NOT IN ('Credit Card Pay', 'Transfer') "
             "GROUP BY m, cat, c.color ORDER BY m ASC, 4 DESC", (cutoff,))
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
 
     # Find top categories by total spend
     cat_totals = defaultdict(float)

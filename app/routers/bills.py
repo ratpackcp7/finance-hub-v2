@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from db import db_conn, db_put
+from db import db_read, db_transaction
 
 router = APIRouter(prefix="/api", tags=["bills"])
 
@@ -24,9 +24,7 @@ def upcoming_bills(days: int = 30):
     """
     today = date.today()
     horizon = today + timedelta(days=days)
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         bills = []
 
         # Source 1: Account due dates (credit cards + loans)
@@ -118,9 +116,6 @@ def upcoming_bills(days: int = 30):
                 "overdue": predicted < today,
             })
 
-    finally:
-        db_put(conn)
-
     # Sort by due date
     bills.sort(key=lambda b: b["due_date"])
 
@@ -146,9 +141,7 @@ class DebtPayoffRequest(BaseModel):
 def debt_payoff_scenarios(extra_monthly: float = 0, strategy: str = "avalanche"):
     """Calculate debt payoff timeline using snowball or avalanche method.
     Uses loan metadata from accounts table."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cur.execute(
             "SELECT id, name, account_type, ABS(balance), "
             "COALESCE(loan_rate, apr, 0), COALESCE(loan_payment, minimum_payment, 0) "
@@ -157,8 +150,6 @@ def debt_payoff_scenarios(extra_monthly: float = 0, strategy: str = "avalanche")
             "AND account_type IN ('credit', 'loan', 'mortgage') "
             "ORDER BY ABS(balance) ASC")
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
 
     if not rows:
         return {"debts": [], "strategy": strategy, "message": "No debts found"}

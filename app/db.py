@@ -4,6 +4,7 @@ Finance Hub v2 — Database pool + shared utilities
 import logging
 import os
 import re
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -62,6 +63,42 @@ def close_pool():
     if _pool:
         _pool.closeall()
         _pool = None
+
+
+@contextmanager
+def db_transaction():
+    """Context manager for mutating DB operations.
+
+    Yields a cursor. Commits on clean exit, rolls back on any exception.
+    Connection always returns to the pool in a clean state.
+    """
+    conn = get_pool().getconn()
+    try:
+        cur = conn.cursor()
+        yield cur
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        get_pool().putconn(conn)
+
+
+@contextmanager
+def db_read():
+    """Context manager for read-only DB operations.
+
+    Yields a cursor. Rolls back on exit (no commit needed for reads)
+    to ensure the connection returns clean.
+    """
+    conn = get_pool().getconn()
+    try:
+        cur = conn.cursor()
+        yield cur
+    finally:
+        conn.rollback()
+        get_pool().putconn(conn)
+
 
 
 def _csv_safe(val):

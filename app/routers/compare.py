@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import APIRouter
 
-from db import db_conn, db_put
+from db import db_read, db_transaction
 
 router = APIRouter(prefix="/api/compare", tags=["compare"])
 
@@ -16,9 +16,7 @@ def compare_periods(
     account_id: Optional[str] = None
 ):
     """Compare spending, income, and category breakdown between two periods."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         acct_filter = "AND t.account_id = %s" if account_id else ""
         acct_params = [account_id] if account_id else []
 
@@ -84,9 +82,6 @@ def compare_periods(
                 "categories": categories,
                 "top_payees": payees,
             }
-
-    finally:
-        db_put(conn)
 
     # Compute deltas
     deltas = {

@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from db import _audit, db_conn, db_put, require_valid_category
+from db import _audit, db_read, db_transaction, require_valid_category
 
 router = APIRouter(prefix="/api/splits", tags=["splits"])
 
@@ -23,9 +23,7 @@ class SplitRequest(BaseModel):
 @router.get("/{txn_id}")
 def get_splits(txn_id: str):
     """Get all splits for a transaction."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cur.execute("SELECT id FROM transactions WHERE id = %s", (txn_id,))
         if not cur.fetchone():
             raise HTTPException(status_code=404, detail="Transaction not found")
@@ -34,8 +32,6 @@ def get_splits(txn_id: str):
             "FROM transaction_splits s LEFT JOIN categories c ON s.category_id = c.id "
             "WHERE s.txn_id = %s ORDER BY s.id", (txn_id,))
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     return [{"id": r[0], "category_id": r[1], "category": r[2], "color": r[3],
              "amount": float(r[4]), "description": r[5]} for r in rows]
 
@@ -47,9 +43,7 @@ def set_splits(body: SplitRequest):
     if len(body.splits) < 2:
         raise HTTPException(status_code=400, detail="Need at least 2 splits")
 
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
 
         # Get parent transaction
         cur.execute("SELECT amount, account_id, reconciled_at FROM transactions WHERE id = %s", (body.txn_id,))
@@ -89,24 +83,13 @@ def set_splits(body: SplitRequest):
 
         _audit(cur, "transaction", body.txn_id, "split_set", source="user",
                field_name="splits", new_value=f"{len(body.splits)} splits")
-        conn.commit()
-    except HTTPException:
-        conn.rollback()
-        raise
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db_put(conn)
     return {"status": "ok", "splits": len(body.splits)}
 
 
 @router.delete("/{txn_id}")
 def remove_splits(txn_id: str):
     """Remove all splits from a transaction, reverting to single-category."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute("DELETE FROM transaction_splits WHERE txn_id = %s", (txn_id,))
         deleted = cur.rowcount
         cur.execute(
@@ -114,7 +97,4 @@ def remove_splits(txn_id: str):
             (txn_id,))
         _audit(cur, "transaction", txn_id, "split_remove", source="user",
                field_name="splits", old_value=f"{deleted} splits")
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok", "removed": deleted}

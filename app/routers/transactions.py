@@ -1,5 +1,6 @@
 """Transactions router — list, patch, export, transfers."""
 import csv
+import hashlib
 import io
 from datetime import date
 from typing import Optional
@@ -8,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from db import MAX_TEXT_LEN, _audit, _csv_safe, db_conn, db_put, require_valid_category
+from db import MAX_TEXT_LEN, _audit, _csv_safe, db_read, db_transaction, require_valid_category
 
 router = APIRouter(prefix="/api", tags=["transactions"])
 
@@ -61,6 +62,12 @@ def _txn_filters(account_id=None, category_id=None, start_date=None, end_date=No
     return filters, params
 
 
+# B.4: Canonical transfer pair ID — sorted, order-insensitive
+def _make_pair_id(txn_id_1: str, txn_id_2: str) -> str:
+    canonical = ":".join(sorted([txn_id_1, txn_id_2]))
+    return "xfer_" + hashlib.sha256(canonical.encode()).hexdigest()[:16]
+
+
 @router.get("/transactions")
 def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str] = None,
                      category_id: Optional[str] = None, start_date: Optional[date] = None,
@@ -69,9 +76,7 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
                      recurring: Optional[bool] = None,
                      exclude_transfers: Optional[bool] = None,
                      tag_id: Optional[int] = None):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         parsed_category_id, uncategorized = _parse_category_filter(category_id)
         filters, params = _txn_filters(
             account_id, parsed_category_id, start_date, end_date, search, pending,
@@ -111,8 +116,6 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
         count_row = cur.fetchone()
         total = count_row[0]
         total_amount = float(count_row[1])
-    finally:
-        db_put(conn)
     return {
         "total": total, "total_amount": total_amount, "limit": limit, "offset": offset, "has_balance": account_id is not None,
         "transactions": [
@@ -134,9 +137,7 @@ def get_transactions(limit: int = 200, offset: int = 0, account_id: Optional[str
 def export_transactions(account_id: Optional[str] = None, category_id: Optional[str] = None,
                         start_date: Optional[date] = None, end_date: Optional[date] = None,
                         search: Optional[str] = None):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         parsed_category_id, uncategorized = _parse_category_filter(category_id)
         filters, params = _txn_filters(
             account_id, parsed_category_id, start_date, end_date, search,
@@ -151,8 +152,6 @@ def export_transactions(account_id: Optional[str] = None, category_id: Optional[
                 LEFT JOIN categories c ON t.category_id = c.id {where}
                 ORDER BY t.posted DESC, t.id""", params)
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["Date", "Payee", "Description", "Account", "Category", "Amount", "Transfer", "Notes", "Category Source"])
@@ -176,9 +175,7 @@ class TxnPatch(BaseModel):
 
 @router.patch("/transactions/{txn_id}")
 def patch_transaction(txn_id: str, body: TxnPatch):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute("SELECT category_id, payee, notes, reconciled_at FROM transactions WHERE id = %s", (txn_id,))
         old = cur.fetchone()
         if not old:
@@ -214,9 +211,6 @@ def patch_transaction(txn_id: str, body: TxnPatch):
             return {"status": "no-op"}
         updates.append("updated_at = NOW()"); params.append(txn_id)
         cur.execute(f"UPDATE transactions SET {', '.join(updates)} WHERE id = %s", params)
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok"}
 
 
@@ -224,9 +218,7 @@ def patch_transaction(txn_id: str, body: TxnPatch):
 
 @router.patch("/transactions/{txn_id}/transfer")
 def toggle_transfer(txn_id: str):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute("SELECT is_transfer FROM transactions WHERE id = %s", (txn_id,))
         old = cur.fetchone()
         if not old:
@@ -237,17 +229,12 @@ def toggle_transfer(txn_id: str):
         new_val = cur.fetchone()[0]
         _audit(cur, "transaction", txn_id, "toggle_transfer", field_name="is_transfer",
                old_value=old[0], new_value=new_val)
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok", "is_transfer": new_val}
 
 
 @router.post("/transfers/detect")
 def detect_transfers(days_window: int = 3, amount_tolerance: float = 0.01):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cur.execute(
             """SELECT t1.id, t1.account_id, a1.name, t1.posted, t1.amount, t1.description,
                       t2.id, t2.account_id, a2.name, t2.posted, t2.amount, t2.description
@@ -260,8 +247,6 @@ def detect_transfers(days_window: int = 3, amount_tolerance: float = 0.01):
                ORDER BY t1.posted DESC LIMIT 200""",
             (amount_tolerance, days_window))
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     return [{"txn1": {"id": r[0], "account_id": r[1], "account_name": r[2],
                       "posted": r[3].isoformat() if r[3] else None, "amount": float(r[4]), "description": r[5]},
              "txn2": {"id": r[6], "account_id": r[7], "account_name": r[8],
@@ -275,13 +260,12 @@ class TransferApplyRequest(BaseModel):
 
 @router.post("/transfers/apply")
 def apply_transfers(body: TransferApplyRequest):
-    conn = db_conn()
-    marked = 0
-    try:
-        cur = conn.cursor()
-        import hashlib as _hl
+    with db_transaction() as cur:
+        marked = 0
         for pair in body.pairs:
-            pair_id = "xfer_" + _hl.sha256(":".join(sorted(pair)).encode()).hexdigest()[:16]
+            if len(pair) != 2:
+                raise HTTPException(status_code=400, detail="Each pair must have exactly 2 transaction IDs")
+            pair_id = _make_pair_id(pair[0], pair[1])
             for txn_id in pair:
                 cur.execute(
                     "UPDATE transactions SET is_transfer = TRUE, transfer_pair_id = %s, updated_at = NOW() "
@@ -290,9 +274,6 @@ def apply_transfers(body: TransferApplyRequest):
                     _audit(cur, "transaction", txn_id, "mark_transfer", source="user",
                            field_name="is_transfer", old_value=False, new_value=True)
                     marked += 1
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"marked": marked}
 
 
@@ -312,7 +293,6 @@ class ManualTxnCreate(BaseModel):
 @router.post("/transactions")
 def create_manual_transaction(body: ManualTxnCreate):
     """Create a manually entered transaction."""
-    import hashlib
     from datetime import datetime
 
     if not body.description or not body.description.strip():
@@ -320,9 +300,7 @@ def create_manual_transaction(body: ManualTxnCreate):
     if not body.account_id:
         raise HTTPException(status_code=400, detail="account_id is required")
 
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute("SELECT id FROM accounts WHERE id = %s", (body.account_id,))
         if not cur.fetchone():
             raise HTTPException(status_code=404, detail="Account not found")
@@ -349,24 +327,13 @@ def create_manual_transaction(body: ManualTxnCreate):
 
         _audit(cur, "transaction", txn_id, "manual_create", source="user",
                field_name="amount", new_value=f"{body.amount:.2f}")
-        conn.commit()
-    except HTTPException:
-        conn.rollback()
-        raise
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db_put(conn)
     return {"status": "ok", "id": txn_id}
 
 
 @router.delete("/transactions/{txn_id}")
 def delete_manual_transaction(txn_id: str):
     """Delete a manually entered transaction. Only manual transactions can be deleted."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute("SELECT source, amount, description FROM transactions WHERE id = %s", (txn_id,))
         row = cur.fetchone()
         if not row:
@@ -376,9 +343,6 @@ def delete_manual_transaction(txn_id: str):
         cur.execute("DELETE FROM transactions WHERE id = %s", (txn_id,))
         _audit(cur, "transaction", txn_id, "manual_delete", source="user",
                field_name="amount", old_value=f"{row[1]:.2f}")
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok"}
 
 
@@ -392,11 +356,7 @@ class TransferLinkRequest(BaseModel):
 @router.post("/transfers/link")
 def link_transfer_pair(body: TransferLinkRequest):
     """Link two transactions as a transfer pair."""
-    import hashlib
-
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute("SELECT id, account_id, amount FROM transactions WHERE id IN (%s, %s)",
                     (body.txn_id_1, body.txn_id_2))
         rows = cur.fetchall()
@@ -406,9 +366,7 @@ def link_transfer_pair(body: TransferLinkRequest):
         if accts[body.txn_id_1] == accts[body.txn_id_2]:
             raise HTTPException(status_code=400, detail="Transfer pairs must be in different accounts")
 
-        pair_id = "xfer_" + hashlib.sha256(
-            f"{body.txn_id_1}:{body.txn_id_2}".encode()
-        ).hexdigest()[:16]
+        pair_id = _make_pair_id(body.txn_id_1, body.txn_id_2)
 
         for txn_id in (body.txn_id_1, body.txn_id_2):
             cur.execute(
@@ -416,25 +374,17 @@ def link_transfer_pair(body: TransferLinkRequest):
                 "WHERE id = %s", (pair_id, txn_id))
             _audit(cur, "transaction", txn_id, "link_transfer", source="user",
                    field_name="transfer_pair_id", new_value=pair_id)
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok", "pair_id": pair_id}
 
 
 @router.delete("/transfers/link/{pair_id}")
 def unlink_transfer_pair(pair_id: str):
     """Unlink a transfer pair."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute(
             "UPDATE transactions SET is_transfer = FALSE, transfer_pair_id = NULL, updated_at = NOW() "
             "WHERE transfer_pair_id = %s", (pair_id,))
         count = cur.rowcount
         if count == 0:
             raise HTTPException(status_code=404, detail="Transfer pair not found")
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok", "unlinked": count}

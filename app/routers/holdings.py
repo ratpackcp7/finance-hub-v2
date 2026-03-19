@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from db import db_conn, db_put
+from db import db_read, db_transaction
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/holdings", tags=["holdings"])
@@ -28,9 +28,7 @@ class HoldingUpdate(BaseModel):
 
 @router.get("")
 def list_holdings():
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cur.execute("""
             SELECT h.id, h.account_id, a.name AS account_name, h.ticker, h.name,
                    h.shares, h.cost_basis, h.last_price, h.last_price_date, h.updated_at
@@ -39,8 +37,6 @@ def list_holdings():
             ORDER BY (h.shares * COALESCE(h.last_price, 0)) DESC NULLS LAST
         """)
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     holdings = []
     for r in rows:
         shares = float(r[5]) if r[5] else 0
@@ -72,9 +68,7 @@ def list_holdings():
 
 @router.post("")
 def create_holding(body: HoldingCreate):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute("SELECT id FROM accounts WHERE id = %s", (body.account_id,))
         if not cur.fetchone():
             raise HTTPException(status_code=404, detail="Account not found")
@@ -87,17 +81,12 @@ def create_holding(body: HoldingCreate):
             RETURNING id
         """, (body.account_id, body.ticker.upper(), body.name, body.shares, body.cost_basis))
         hid = cur.fetchone()[0]
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok", "id": hid}
 
 
 @router.patch("/{holding_id}")
 def update_holding(holding_id: int, body: HoldingUpdate):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         sets, vals = [], []
         if body.name is not None:
             sets.append("name = %s"); vals.append(body.name)
@@ -110,30 +99,20 @@ def update_holding(holding_id: int, body: HoldingUpdate):
         sets.append("updated_at = NOW()")
         vals.append(holding_id)
         cur.execute(f"UPDATE holdings SET {', '.join(sets)} WHERE id = %s", vals)
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok"}
 
 
 @router.delete("/{holding_id}")
 def delete_holding(holding_id: int):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute("DELETE FROM holdings WHERE id = %s", (holding_id,))
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok"}
 
 
 @router.post("/refresh-prices")
 def refresh_prices():
     """Fetch latest prices from Yahoo Finance using Ticker API (handles mutual funds)."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute("SELECT DISTINCT ticker FROM holdings")
         tickers = [r[0] for r in cur.fetchall()]
         if not tickers:
@@ -167,11 +146,7 @@ def refresh_prices():
             ON CONFLICT (snapshot_date, holding_id) DO UPDATE SET
                 price = EXCLUDED.price, market_value = EXCLUDED.market_value
         """, (today,))
-
-        conn.commit()
         logger.info("Price refresh: %d/%d tickers updated", updated, len(tickers))
-    finally:
-        db_put(conn)
     result = {"status": "ok", "updated": updated, "tickers": len(tickers)}
     if errors:
         result["errors"] = errors
@@ -198,9 +173,7 @@ PAYEE_TICKER_MAP = {
 @router.get("/activity")
 def holding_activity(months: int = 6):
     """Match investment transactions to holdings. Show dividends, reinvestments, and unmatched activity."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cutoff = date.today() - timedelta(days=months * 31)
 
         # Get all investment account transactions
@@ -218,8 +191,6 @@ def holding_activity(months: int = 6):
         cur.execute("SELECT id, account_id, ticker, name FROM holdings")
         holdings = cur.fetchall()
         holding_map = {(h[1], h[2]): {"id": h[0], "ticker": h[2], "name": h[3]} for h in holdings}
-    finally:
-        db_put(conn)
 
     dividends = []
     reinvestments = []
@@ -281,9 +252,7 @@ def holding_activity(months: int = 6):
 @router.get("/alerts")
 def holding_alerts():
     """Detect deviations: account balance vs holdings value, unexpected transactions, missing dividends."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
 
         # Get accounts with holdings
         cur.execute("""
@@ -316,8 +285,6 @@ def holding_alerts():
             FROM holdings h WHERE h.shares > 0
         """)
         active_holdings = cur.fetchall()
-    finally:
-        db_put(conn)
 
     alerts = []
 
@@ -373,9 +340,7 @@ def holding_alerts():
 @router.get("/history")
 def holdings_history(months: int = 6):
     """Daily portfolio value from holding snapshots."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cutoff = date.today() - timedelta(days=months * 31)
         cur.execute("""
             SELECT hs.snapshot_date, h.ticker, h.name, hs.price, hs.market_value
@@ -385,8 +350,6 @@ def holdings_history(months: int = 6):
             ORDER BY hs.snapshot_date ASC, hs.market_value DESC
         """, (cutoff,))
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     by_date = {}
     for snap_date, ticker, name, price, mv in rows:
         d = snap_date.isoformat()

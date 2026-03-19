@@ -14,7 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from db import _audit, db_conn, db_put
+from db import _audit, db_read, db_transaction
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/csv-import", tags=["csv-import"])
@@ -102,9 +102,7 @@ async def csv_preview(file: UploadFile = File(...), account_id: str = Form(...))
     headers = [h.strip() for h in rows[0]]
 
     # Auto-detect mapping
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         detected = _detect_mapping(headers, cur)
 
         # Verify account exists
@@ -113,8 +111,6 @@ async def csv_preview(file: UploadFile = File(...), account_id: str = Form(...))
         if not acct:
             raise HTTPException(status_code=400, detail=f"Account not found: {account_id}")
         account_name = acct[1]
-    finally:
-        db_put(conn)
 
     # Parse preview rows
     preview = []
@@ -190,21 +186,20 @@ class CsvApplyRequest(BaseModel):
     sign_flip: bool = False
 
 
-def _fail_batch(conn, batch_id: Optional[int], error_msg: str):
-    """Mark an import batch as failed. Swallows errors to avoid masking the original exception."""
+def _fail_batch(batch_id: Optional[int], error_msg: str):
+    """Mark an import batch as failed using a separate transaction.
+
+    Uses its own connection because the caller's transaction will be rolled back.
+    """
     if batch_id is None:
         return
     try:
-        cur = conn.cursor()
-        cur.execute(
-            "UPDATE import_batches SET status='error', finished_at=NOW(), error_message=%s WHERE id=%s",
-            (error_msg, batch_id))
-        conn.commit()
+        with db_transaction() as cur:
+            cur.execute(
+                "UPDATE import_batches SET status='error', finished_at=NOW(), error_message=%s WHERE id=%s",
+                (error_msg, batch_id))
     except Exception:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
+        pass
 
 
 @router.post("/apply")
@@ -233,11 +228,10 @@ async def csv_apply(file: UploadFile = File(...), config: str = Form(...)):
     headers = [h.strip() for h in rows[0]]
     data_rows = rows[1:]
 
-    conn = db_conn()
     batch_id = None
-    categorized = 0
     try:
-        cur = conn.cursor()
+      with db_transaction() as cur:
+        categorized = 0
 
         # Verify account
         cur.execute("SELECT id FROM accounts WHERE id = %s", (account_id,))
@@ -270,7 +264,6 @@ async def csv_apply(file: UploadFile = File(...), config: str = Form(...)):
         cur.execute(
             "INSERT INTO import_batches (status, source) VALUES ('running', 'csv') RETURNING id")
         batch_id = cur.fetchone()[0]
-        conn.commit()
 
         added = skipped = dupes = errors = 0
 
@@ -320,6 +313,7 @@ async def csv_apply(file: UploadFile = File(...), config: str = Form(...)):
                 "AND ABS(amount - %s) < 0.01 AND description = %s LIMIT 1",
                 (account_id, date_val, amount, description))
             if cur.fetchone():
+                dupes += 1  # C.5: count duplicates
                 skipped += 1
                 continue
 
@@ -356,19 +350,13 @@ async def csv_apply(file: UploadFile = File(...), config: str = Form(...)):
             (added, skipped, dupes,
              f"{errors} rows had parse errors" if errors else None,
              batch_id))
-        conn.commit()
 
-    except HTTPException as e:
-        conn.rollback()
-        _fail_batch(conn, batch_id, str(e.detail))
+    except HTTPException as he:
+        _fail_batch(batch_id, str(he.detail))
         raise
     except Exception as e:
-        conn.rollback()
-        _fail_batch(conn, batch_id, str(e))
-        logger.error("CSV import failed: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Import failed: {e}")
-    finally:
-        db_put(conn)
+        _fail_batch(batch_id, str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
     return {
         "status": "ok",
@@ -385,16 +373,12 @@ async def csv_apply(file: UploadFile = File(...), config: str = Form(...)):
 
 @router.get("/mappings")
 def list_mappings():
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cur.execute(
             "SELECT id, name, institution, header_signature, mapping, sign_flip, "
             "date_format, notes, is_preset, created_at "
             "FROM csv_mappings ORDER BY is_preset DESC, name")
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     return [{"id": r[0], "name": r[1], "institution": r[2],
              "header_signature": r[3],
              "mapping": r[4] if isinstance(r[4], dict) else json.loads(r[4]),
@@ -415,9 +399,7 @@ class MappingCreate(BaseModel):
 
 @router.post("/mappings")
 def create_mapping(body: MappingCreate):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute(
             "INSERT INTO csv_mappings (name, institution, header_signature, mapping, "
             "sign_flip, date_format, notes) "
@@ -425,17 +407,12 @@ def create_mapping(body: MappingCreate):
             (body.name, body.institution, body.header_signature,
              json.dumps(body.mapping), body.sign_flip, body.date_format, body.notes))
         new_id = cur.fetchone()[0]
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"id": new_id, "name": body.name}
 
 
 @router.delete("/mappings/{mapping_id}")
 def delete_mapping(mapping_id: int):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute("SELECT is_preset FROM csv_mappings WHERE id = %s", (mapping_id,))
         row = cur.fetchone()
         if not row:
@@ -443,7 +420,4 @@ def delete_mapping(mapping_id: int):
         if row[0]:
             raise HTTPException(status_code=400, detail="Cannot delete built-in presets")
         cur.execute("DELETE FROM csv_mappings WHERE id = %s", (mapping_id,))
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok"}

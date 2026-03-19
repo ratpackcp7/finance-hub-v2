@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 
-from db import db_conn, db_put
+from db import db_read, db_transaction
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/benchmark", tags=["benchmark"])
@@ -20,9 +20,7 @@ def compare_to_benchmark(benchmark: str = "SPY", period: str = "1Y"):
     periods = {"1Y": 12, "3Y": 36, "5Y": 60, "ALL": 999}
     months = periods.get(period, 12)
 
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cutoff = date.today() - timedelta(days=months * 31)
 
         # Portfolio: use investment_performance (Vanguard monthly data)
@@ -51,10 +49,6 @@ def compare_to_benchmark(benchmark: str = "SPY", period: str = "1Y"):
                 "WHERE ticker = %s AND price_date >= %s ORDER BY price_date ASC",
                 (benchmark.upper(), cutoff))
             bench_rows = cur.fetchall()
-            conn.commit()
-
-    finally:
-        db_put(conn)
 
     # Build monthly comparison
     # Portfolio data is already monthly
@@ -84,19 +78,19 @@ def compare_to_benchmark(benchmark: str = "SPY", period: str = "1Y"):
         port_val = port["balance"] if port else None
         bench_val = bench
 
-        if port_val and first_port is None:
+        if port_val is not None and first_port is None:
             first_port = port_val
-        if bench_val and first_bench is None:
+        if bench_val is not None and first_bench is None:
             first_bench = bench_val
 
-        port_return = ((port_val / first_port - 1) * 100) if port_val and first_port else None
-        bench_return = ((bench_val / first_bench - 1) * 100) if bench_val and first_bench else None
+        port_return = ((port_val / first_port - 1) * 100) if port_val is not None and first_port else None
+        bench_return = ((bench_val / first_bench - 1) * 100) if bench_val is not None and first_bench else None
 
         series.append({
             "month": m,
-            "portfolio_value": round(port_val, 2) if port_val else None,
+            "portfolio_value": round(port_val, 2) if port_val is not None else None,
             "portfolio_return": round(port_return, 2) if port_return is not None else None,
-            "benchmark_price": round(bench_val, 2) if bench_val else None,
+            "benchmark_price": round(bench_val, 2) if bench_val is not None else None,
             "benchmark_return": round(bench_return, 2) if bench_return is not None else None,
         })
 
@@ -150,11 +144,6 @@ def _refresh_benchmark(cur, ticker, start_date):
 def refresh_benchmark_data(ticker: str = "SPY", months: int = 60):
     """Manually refresh benchmark price cache."""
     start = date.today() - timedelta(days=months * 31)
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         count = _refresh_benchmark(cur, ticker.upper(), start)
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok", "ticker": ticker.upper(), "prices_cached": count}

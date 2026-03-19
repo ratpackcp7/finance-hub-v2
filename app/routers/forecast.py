@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter
 
-from db import db_conn, db_put
+from db import db_read, db_transaction
 
 router = APIRouter(prefix="/api/forecast", tags=["forecast"])
 
@@ -43,9 +43,7 @@ def _get_monthly_averages(cur, months=3):
 @router.get("/cashflow")
 def cashflow_forecast(months_ahead: int = 6):
     """Project monthly cashflow for the next N months."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         avg_income, avg_spending, hist_start, hist_end = _get_monthly_averages(cur, 3)
         savings_rate = ((avg_income - avg_spending) / avg_income * 100) if avg_income > 0 else 0
 
@@ -84,8 +82,6 @@ def cashflow_forecast(months_ahead: int = 6):
                 "projected_nw": round(current_nw + cumulative_savings, 2),
                 "type": "projected",
             })
-    finally:
-        db_put(conn)
 
     return {
         "averages": {
@@ -103,9 +99,7 @@ def cashflow_forecast(months_ahead: int = 6):
 @router.get("/category")
 def category_forecast():
     """Per-category spending projection based on recent averages."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         today = date.today()
         end = date(today.year, today.month, 1) - timedelta(days=1)
         start = date(end.year if end.month >= 3 else end.year - 1,
@@ -141,8 +135,6 @@ def category_forecast():
             "SELECT c.name, b.monthly_amount FROM budgets b "
             "JOIN categories c ON b.category_id = c.id WHERE b.deleted_at IS NULL")
         budgets = {r[0]: float(r[1]) for r in cur.fetchall()}
-    finally:
-        db_put(conn)
 
     import calendar
     days_in_month = calendar.monthrange(today.year, today.month)[1]
@@ -175,16 +167,12 @@ def category_forecast():
 def what_if(category: Optional[str] = None, monthly_change: float = 0,
             extra_savings: float = 0, months: int = 12):
     """What-if scenario: reduce category spending or add extra savings."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         avg_income, avg_spending, _, _ = _get_monthly_averages(cur, 3)
 
         # Current net worth
         cur.execute("SELECT SUM(balance) FROM accounts WHERE hidden = FALSE")
         current_nw = float(cur.fetchone()[0] or 0)
-    finally:
-        db_put(conn)
 
     # Baseline scenario
     baseline_net = avg_income - avg_spending

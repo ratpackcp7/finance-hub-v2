@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from db import _audit, db_conn, db_put
+from db import _audit, db_read, db_transaction
 
 router = APIRouter(prefix="/api/goals", tags=["goals"])
 
@@ -16,9 +16,7 @@ GOAL_TYPES = {"emergency_fund", "savings", "debt_payoff", "purchase", "custom"}
 @router.get("")
 def list_goals(status: Optional[str] = None):
     """List all savings goals with computed progress."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         filters = ["1=1"]
         params = []
         if status:
@@ -34,8 +32,6 @@ def list_goals(status: Optional[str] = None):
                 WHERE {' AND '.join(filters)}
                 ORDER BY g.status ASC, g.created_at DESC""", params)
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
 
     goals = []
     for r in rows:
@@ -95,9 +91,7 @@ def create_goal(body: GoalCreate):
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
 
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         if body.account_id:
             cur.execute("SELECT id FROM accounts WHERE id = %s", (body.account_id,))
             if not cur.fetchone():
@@ -110,9 +104,6 @@ def create_goal(body: GoalCreate):
              body.goal_type, body.target_date, body.monthly_contribution,
              body.color, body.notes))
         goal_id = cur.fetchone()[0]
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"id": goal_id, "name": name}
 
 
@@ -131,9 +122,7 @@ class GoalUpdate(BaseModel):
 
 @router.patch("/{goal_id}")
 def update_goal(goal_id: int, body: GoalUpdate):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute("SELECT id FROM savings_goals WHERE id = %s", (goal_id,))
         if not cur.fetchone():
             raise HTTPException(status_code=404, detail="Goal not found")
@@ -157,24 +146,16 @@ def update_goal(goal_id: int, body: GoalUpdate):
         updates.append("updated_at = NOW()")
         params.append(goal_id)
         cur.execute(f"UPDATE savings_goals SET {', '.join(updates)} WHERE id = %s", params)
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok"}
 
 
 @router.delete("/{goal_id}")
 def delete_goal(goal_id: int):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute("DELETE FROM goal_snapshots WHERE goal_id = %s", (goal_id,))
         cur.execute("DELETE FROM savings_goals WHERE id = %s", (goal_id,))
         if cur.rowcount == 0:
             raise HTTPException(status_code=404, detail="Goal not found")
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok"}
 
 
@@ -186,9 +167,7 @@ class GoalContribution(BaseModel):
 @router.post("/{goal_id}/contribute")
 def add_contribution(goal_id: int, body: GoalContribution):
     """Add a manual contribution to a non-account-linked goal."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute("SELECT current_amount, account_id, target_amount FROM savings_goals WHERE id = %s", (goal_id,))
         row = cur.fetchone()
         if not row:
@@ -205,9 +184,6 @@ def add_contribution(goal_id: int, body: GoalContribution):
             (new_amount, status, status, goal_id))
         _audit(cur, "goal", goal_id, "contribution", source="user",
                field_name="current_amount", old_value=str(row[0]), new_value=str(new_amount))
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok", "current_amount": round(new_amount, 2),
             "goal_status": status}
 
@@ -215,9 +191,7 @@ def add_contribution(goal_id: int, body: GoalContribution):
 @router.get("/summary")
 def goals_summary():
     """Quick summary for dashboard."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cur.execute(
             """SELECT g.id, g.name, g.target_amount, g.current_amount, g.account_id,
                       a.balance, g.goal_type, g.color, g.status
@@ -226,8 +200,6 @@ def goals_summary():
                WHERE g.status = 'active'
                ORDER BY g.created_at""")
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
 
     goals = []
     for r in rows:

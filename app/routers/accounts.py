@@ -5,22 +5,18 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from db import ACCOUNT_TYPES, _audit, db_conn, db_put
+from db import ACCOUNT_TYPES, _audit, db_read, db_transaction
 
 router = APIRouter(prefix="/api", tags=["accounts"])
 
 
 @router.get("/accounts")
 def get_accounts():
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cur.execute(
             "SELECT id, name, org_name, currency, balance, balance_date, on_budget, hidden, updated_at, account_type, payment_due_day, minimum_payment, apr, credit_limit, autopay_enabled, loan_rate, loan_term_months, loan_payment, loan_maturity_date "
             "FROM accounts WHERE hidden = FALSE ORDER BY org_name, name")
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     return [{"id": r[0], "name": r[1], "org": r[2], "currency": r[3],
              "balance": float(r[4]) if r[4] is not None else None,
              "balance_date": r[5].isoformat() if r[5] else None,
@@ -56,9 +52,7 @@ def patch_account(acct_id: str, body: AccountPatch):
     if body.account_type and body.account_type not in ACCOUNT_TYPES:
         raise HTTPException(status_code=400,
                             detail=f"account_type must be one of: {', '.join(sorted(ACCOUNT_TYPES))}")
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         if body.account_type is not None:
             cur.execute("SELECT account_type FROM accounts WHERE id = %s", (acct_id,))
             old = cur.fetchone()
@@ -97,23 +91,16 @@ def patch_account(acct_id: str, body: AccountPatch):
                 _audit(cur, "account", acct_id, "update", field_name=field,
                        old_value=str(old_val[0]) if old_val and old_val[0] is not None else None,
                        new_value=str(value))
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok"}
 
 
 @router.get("/accounts/net-worth")
 def net_worth():
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cur.execute(
             "SELECT COALESCE(account_type, 'checking'), SUM(balance), COUNT(*) "
             "FROM accounts WHERE hidden = FALSE AND on_budget = TRUE AND balance IS NOT NULL GROUP BY 1 ORDER BY 1")
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     groups = [{"type": r[0], "total": float(r[1]), "count": r[2]} for r in rows]
     return {"groups": groups, "net_worth": sum(g["total"] for g in groups)}
 
@@ -129,17 +116,13 @@ def _take_snapshot(conn):
              balance = EXCLUDED.balance, account_name = EXCLUDED.account_name, account_type = EXCLUDED.account_type""",
         (today,))
     count = cur.rowcount
-    conn.commit()
     return count
 
 
 @router.post("/snapshots/take")
 def take_snapshot():
-    conn = db_conn()
-    try:
-        count = _take_snapshot(conn)
-    finally:
-        db_put(conn)
+    with db_transaction() as cur:
+        count = _take_snapshot(cur)
     return {"status": "ok", "accounts": count, "date": date.today().isoformat()}
 
 
@@ -147,15 +130,11 @@ def take_snapshot():
 @router.get("/net-worth/breakdown")
 def net_worth_breakdown():
     """Net worth grouped by account type with individual accounts."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cur.execute(
             "SELECT id, name, COALESCE(account_type, 'checking'), balance, on_budget "
             "FROM accounts WHERE hidden = FALSE AND balance IS NOT NULL ORDER BY account_type, balance DESC")
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     groups = {}
     for r in rows:
         atype = r[2]
@@ -170,9 +149,7 @@ def net_worth_breakdown():
 @router.get("/debt/summary")
 def debt_summary():
     """Loan accounts with payment history for payoff tracking."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         # Get loan/mortgage accounts
         cur.execute(
             "SELECT id, name, COALESCE(account_type, 'checking'), balance "
@@ -192,8 +169,6 @@ def debt_summary():
                 "balance": float(a[3]),
                 "history": [{"date": s[0].isoformat(), "balance": float(s[1])} for s in snaps]
             })
-    finally:
-        db_put(conn)
     total_debt = sum(abs(a["balance"]) for a in result)
     return {"accounts": result, "total_debt": total_debt}
 
@@ -201,9 +176,7 @@ def debt_summary():
 @router.get("/investments/history")
 def investment_history(months: int = 12):
     """Per-account balance history for investment/retirement/brokerage accounts."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cutoff = date.today() - timedelta(days=months * 31)
         cur.execute(
             "SELECT bs.snapshot_date, bs.account_id, bs.account_name, bs.account_type, bs.balance "
@@ -213,8 +186,6 @@ def investment_history(months: int = 12):
             "AND a.hidden = FALSE AND bs.snapshot_date >= %s "
             "ORDER BY bs.snapshot_date ASC", (cutoff,))
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     # Group by account
     by_acct = {}
     for snap_date, acct_id, acct_name, acct_type, balance in rows:
@@ -227,9 +198,7 @@ def investment_history(months: int = 12):
 @router.get("/dividends/summary")
 def dividend_summary():
     """Dividend income from investment accounts."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         # Positive transactions in investment/retirement/brokerage accounts
         # that represent real income (not reinvestment pairs)
         cur.execute("""
@@ -243,8 +212,6 @@ def dividend_summary():
             ORDER BY 1 DESC, 4 DESC
         """)
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     entries = []
     monthly_totals = {}
     for month, payee, acct, total in rows:
@@ -260,9 +227,7 @@ def dividend_summary():
 @router.get("/investment/performance")
 def investment_performance(months: int = 0):
     """Monthly investment performance from Vanguard data."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         if months > 0:
             cutoff = date.today() - timedelta(days=months * 31)
             cur.execute(
@@ -275,8 +240,6 @@ def investment_performance(months: int = 0):
                 "income_returns, personal_investment_returns, cumulative_returns, ending_balance "
                 "FROM investment_performance ORDER BY month ASC")
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     records = []
     for r in rows:
         records.append({
@@ -302,23 +265,19 @@ def investment_performance(months: int = 0):
             "months": len(records),
             "start": records[0]["month"] if records else None,
             "end": records[-1]["month"] if records else None,
-            "rate_of_return": 23.3,  # from Vanguard
+            "rate_of_return": total_returns if total_returns else None
         }
     }
 
 @router.get("/net-worth/history")
 def net_worth_history(months: int = 12):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cutoff = date.today() - timedelta(days=months * 31)
         cur.execute(
             "SELECT snapshot_date, COALESCE(account_type, 'checking'), SUM(balance) "
             "FROM balance_snapshots WHERE snapshot_date >= %s "
             "GROUP BY snapshot_date, account_type ORDER BY snapshot_date ASC", (cutoff,))
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     by_date = {}
     for snap_date, acct_type, total in rows:
         d = snap_date.isoformat()

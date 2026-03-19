@@ -14,7 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from db import _audit, db_conn, db_put
+from db import _audit, db_read, db_transaction
 
 router = APIRouter(prefix="/api/reconcile", tags=["reconcile"])
 
@@ -30,9 +30,7 @@ class ReconCreateRequest(BaseModel):
 
 @router.post("/sessions")
 def create_session(body: ReconCreateRequest):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute("SELECT id, name FROM accounts WHERE id = %s", (body.account_id,))
         acct = cur.fetchone()
         if not acct:
@@ -47,17 +45,12 @@ def create_session(body: ReconCreateRequest):
             "VALUES (%s, %s, %s, %s) RETURNING id",
             (body.account_id, body.statement_date, body.statement_balance, body.notes))
         session_id = cur.fetchone()[0]
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"id": session_id, "account_id": body.account_id, "status": "open"}
 
 
 @router.get("/sessions")
 def list_sessions(account_id: Optional[str] = None, status: Optional[str] = None, limit: int = 20):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         filters, params = [], []
         if account_id:
             filters.append("s.account_id = %s"); params.append(account_id)
@@ -73,8 +66,6 @@ def list_sessions(account_id: Optional[str] = None, status: Optional[str] = None
                 {where} ORDER BY s.id DESC LIMIT %s""",
             params + [limit])
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     return [{"id": r[0], "account_id": r[1], "account_name": r[2],
              "statement_date": r[3].isoformat() if r[3] else None,
              "statement_balance": float(r[4]) if r[4] is not None else 0,
@@ -88,9 +79,7 @@ def list_sessions(account_id: Optional[str] = None, status: Optional[str] = None
 
 @router.get("/sessions/{session_id}")
 def get_session(session_id: int):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute(
             """SELECT s.id, s.account_id, a.name, s.statement_date, s.statement_balance,
                       s.status, s.cleared_count, s.cleared_balance, s.difference,
@@ -122,17 +111,10 @@ def get_session(session_id: int):
                  "cleared": t[7], "is_transfer": t[8], "pending": t[9]}
                 for t in cur.fetchall()]
 
-        cleared_txns = [t for t in txns if t["cleared"]]
-        cleared_balance = sum(t["amount"] for t in cleared_txns)
-        difference = float(r[4]) - cleared_balance
-
-        cur.execute(
-            "UPDATE reconciliation_sessions SET cleared_count = %s, cleared_balance = %s, difference = %s "
-            "WHERE id = %s",
-            (len(cleared_txns), cleared_balance, difference, session_id))
-        conn.commit()
-    finally:
-        db_put(conn)
+    # Compute cleared stats in-memory — no DB write on GET (C.1)
+    cleared_txns = [t for t in txns if t["cleared"]]
+    cleared_balance = sum(t["amount"] for t in cleared_txns)
+    difference = float(r[4]) - cleared_balance
 
     return {
         "id": r[0], "account_id": r[1], "account_name": r[2],
@@ -156,9 +138,7 @@ class ClearToggleRequest(BaseModel):
 
 @router.post("/sessions/{session_id}/clear")
 def toggle_cleared(session_id: int, body: ClearToggleRequest):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute("SELECT status, account_id FROM reconciliation_sessions WHERE id = %s", (session_id,))
         row = cur.fetchone()
         if not row:
@@ -187,17 +167,12 @@ def toggle_cleared(session_id: int, body: ClearToggleRequest):
                     updated += 1
             _audit(cur, "transaction", txn_id, "reconcile_clear", source="user",
                    field_name="cleared", new_value=body.cleared)
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"updated": updated}
 
 
 @router.post("/sessions/{session_id}/complete")
 def complete_session(session_id: int):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute(
             "SELECT status, account_id, statement_date, statement_balance "
             "FROM reconciliation_sessions WHERE id = %s", (session_id,))
@@ -249,17 +224,12 @@ def complete_session(session_id: int):
             "cleared_count = %s, cleared_balance = %s, difference = %s "
             "WHERE id = %s",
             (cleared_count, cleared_sum, 0, session_id))
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "completed", "reconciled": reconciled}
 
 
 @router.post("/sessions/{session_id}/abandon")
 def abandon_session(session_id: int):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute("SELECT status, account_id, statement_date FROM reconciliation_sessions WHERE id = %s",
                     (session_id,))
         row = cur.fetchone()
@@ -273,42 +243,23 @@ def abandon_session(session_id: int):
         cur.execute(
             "UPDATE reconciliation_sessions SET status = 'abandoned', completed_at = NOW() WHERE id = %s",
             (session_id,))
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "abandoned"}
 
 
 
 @router.post("/sessions/{session_id}/unlock")
 def unlock_session(session_id: int):
-    """Unlock a completed reconciliation session, removing reconciled_at from its transactions."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT status, account_id, statement_date FROM reconciliation_sessions WHERE id = %s",
-            (session_id,))
-        row = cur.fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Session not found")
-        if row[0] != "completed":
-            raise HTTPException(status_code=400, detail="Only completed sessions can be unlocked")
+    """Disabled (A.2) — unlock destroys all prior reconciliations for the account.
 
-        # Remove reconciled_at from transactions in this period
-        cur.execute(
-            "UPDATE transactions SET reconciled_at = NULL, updated_at = NOW() "
-            "WHERE account_id = %s AND posted <= %s AND reconciled_at IS NOT NULL",
-            (row[1], row[2]))
-        unlocked = cur.rowcount
+    The session_items rows are deleted on complete, so there is no way to scope
+    the unlock to only the transactions from one session. Reopening March would
+    silently un-reconcile January and February.
 
-        cur.execute(
-            "UPDATE reconciliation_sessions SET status = 'reopened', completed_at = NULL "
-            "WHERE id = %s", (session_id,))
-
-        _audit(cur, "reconciliation", session_id, "unlock", source="user",
-               field_name="transactions_unlocked", new_value=str(unlocked))
-        conn.commit()
-    finally:
-        db_put(conn)
-    return {"status": "ok", "unlocked": unlocked}
+    To fix: stop deleting session_items on complete, then scope unlock by session.
+    """
+    raise HTTPException(
+        status_code=501,
+        detail="Reconciliation unlock is disabled. It currently un-reconciles ALL "
+               "transactions for the account up to the statement date, not just the "
+               "ones from this session. A scoped unlock requires preserving session "
+               "item history (planned).")

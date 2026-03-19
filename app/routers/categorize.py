@@ -1,6 +1,7 @@
 """AI Categorization router — suggest + apply.
 
-Privacy: Amounts sent to OpenRouter are bucketed (not exact values).
+Privacy: Merchant names, descriptions, dates, and bucketed amounts are sent to
+OpenRouter (Gemini Flash Lite). Exact dollar amounts are NOT sent.
 Provenance: AI-applied categories tagged with category_source='ai'.
 """
 import json
@@ -14,7 +15,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from db import _audit, db_conn, db_put
+from db import _audit, db_read, db_transaction
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/categorize", tags=["categorize"])
@@ -93,9 +94,7 @@ def _parse_ai_response(raw):
 
 @router.get("/suggest")
 def categorize_suggest(limit: int = 100):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cur.execute(
             "SELECT t.id, t.posted, t.amount, t.description, t.payee FROM transactions t "
             "WHERE t.category_id IS NULL AND t.pending = FALSE AND t.category_manual = FALSE "
@@ -113,8 +112,6 @@ def categorize_suggest(limit: int = 100):
             "WHERE r.deleted_at IS NULL ORDER BY r.priority DESC, r.id")
         rules = [{"pattern": r[0], "category_id": r[1], "category": r[2], "payee_name": r[3]}
                  for r in cur.fetchall()]
-    finally:
-        db_put(conn)
     rule_results, unknowns = [], []
     for txn in txns:
         key = (txn.get("payee") or txn.get("description") or "").lower()
@@ -151,7 +148,7 @@ def categorize_suggest(limit: int = 100):
     return {"suggestions": rule_results + ai_results,
             "categories": [{"id": c["id"], "name": c["name"], "color": c["color"]} for c in categories],
             "stats": {"total": len(txns), "rule_matched": len(rule_results), "ai_suggested": len(ai_results)},
-            "privacy_note": "Transaction amounts are bucketed (not exact) before sending to AI service."}
+            "privacy_note": "Merchant names, descriptions, dates, and bucketed amounts are sent to the AI service (OpenRouter/Gemini). Exact dollar amounts are NOT sent."}
 
 
 class CategorizeApplyItem(BaseModel):
@@ -168,16 +165,12 @@ class CategorizeApplyRequest(BaseModel):
 
 @router.post("/apply")
 def categorize_apply(body: CategorizeApplyRequest):
-    conn = db_conn()
-    applied = rules_created = 0
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
+        applied = rules_created = 0
         for item in body.items:
             cur.execute("SELECT category_id, category_source FROM transactions WHERE id = %s", (item.txn_id,))
             old = cur.fetchone()
             source_tag = item.source if item.source in ("ai", "rule", "user") else "ai"
-            # Only lock (category_manual=TRUE) for explicit user edits.
-            # AI/rule-accepted suggestions stay soft so rules can correct later.
             is_manual = source_tag == "user"
             cur.execute(
                 "UPDATE transactions SET category_id = %s, category_manual = %s, "
@@ -195,7 +188,4 @@ def categorize_apply(body: CategorizeApplyRequest):
                         "INSERT INTO payee_rules (match_pattern, payee_name, category_id, priority) "
                         "VALUES (%s, %s, %s, 0)", (pattern, item.payee, item.category_id))
                     rules_created += 1
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"applied": applied, "rules_created": rules_created}

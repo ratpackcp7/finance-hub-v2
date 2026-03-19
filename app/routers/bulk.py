@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from db import _audit, db_conn, db_put, require_valid_category
+from db import _audit, db_read, db_transaction, require_valid_category
 
 router = APIRouter(prefix="/api/bulk", tags=["bulk"])
 
@@ -19,9 +19,7 @@ def bulk_categorize(body: BulkCategorize):
     """Batch-apply a category to multiple transactions."""
     if not body.txn_ids:
         raise HTTPException(status_code=400, detail="txn_ids required")
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         if body.category_id is not None:
             require_valid_category(cur, body.category_id)
 
@@ -44,9 +42,6 @@ def bulk_categorize(body: BulkCategorize):
                     "category_source = NULL, updated_at = NOW() WHERE id = %s",
                     (txn_id,))
             updated += 1
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok", "updated": updated}
 
 
@@ -61,9 +56,7 @@ def bulk_tag(body: BulkTag):
     """Batch add or remove a tag on multiple transactions."""
     if not body.txn_ids:
         raise HTTPException(status_code=400, detail="txn_ids required")
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute("SELECT id FROM tags WHERE id = %s", (body.tag_id,))
         if not cur.fetchone():
             raise HTTPException(status_code=400, detail="Tag not found")
@@ -79,9 +72,6 @@ def bulk_tag(body: BulkTag):
                     "DELETE FROM transaction_tags WHERE txn_id = %s AND tag_id = %s",
                     (txn_id, body.tag_id))
             count += cur.rowcount
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok", "affected": count}
 
 
@@ -94,18 +84,13 @@ def bulk_mark_reviewed(body: BulkReview):
     """Batch mark transactions as reviewed."""
     if not body.txn_ids:
         raise HTTPException(status_code=400, detail="txn_ids required")
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         updated = 0
         for txn_id in body.txn_ids:
             cur.execute(
                 "UPDATE transactions SET reviewed_at = NOW(), updated_at = NOW() "
                 "WHERE id = %s AND reviewed_at IS NULL", (txn_id,))
             updated += cur.rowcount
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok", "reviewed": updated}
 
 
@@ -119,16 +104,11 @@ def bulk_set_transfer(body: BulkTransfer):
     """Batch mark/unmark transactions as transfers."""
     if not body.txn_ids:
         raise HTTPException(status_code=400, detail="txn_ids required")
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         updated = 0
         for txn_id in body.txn_ids:
             cur.execute(
                 "UPDATE transactions SET is_transfer = %s, updated_at = NOW() WHERE id = %s",
                 (body.is_transfer, txn_id))
             updated += cur.rowcount
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok", "updated": updated}

@@ -7,7 +7,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from db import db_conn, db_put
+from db import db_read, db_transaction
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/digest", tags=["digest"])
@@ -31,9 +31,7 @@ def _get_month_range(month_str: Optional[str] = None):
 def monthly_digest(month: Optional[str] = None):
     """Generate a monthly spending digest."""
     start, end, label = _get_month_range(month)
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
 
         # Income
         cur.execute(
@@ -110,9 +108,6 @@ def monthly_digest(month: Optional[str] = None):
 
         # Savings rate
         savings_rate = ((income - spending) / income * 100) if income > 0 else 0
-
-    finally:
-        db_put(conn)
 
     return {
         "month": label,

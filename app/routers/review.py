@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from db import _audit, db_conn, db_put
+from db import _audit, db_read, db_transaction
 
 router = APIRouter(prefix="/api/review", tags=["review"])
 
@@ -15,9 +15,7 @@ def review_queue(limit: int = 50, filter_type: Optional[str] = None):
     """Get transactions needing review, sorted by priority.
     filter_type: uncategorized | ai | recent | large | all (default)
     """
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         now = datetime.now()
         cutoff_recent = (now - timedelta(hours=48)).date()
 
@@ -75,8 +73,6 @@ def review_queue(limit: int = 50, filter_type: Optional[str] = None):
         ct_recent = cur.fetchone()[0]
         cur.execute("SELECT COUNT(*) FROM transactions WHERE ABS(amount) >= 500 AND reviewed_at IS NULL AND pending = FALSE AND is_transfer = FALSE")
         ct_large = cur.fetchone()[0]
-    finally:
-        db_put(conn)
 
     items = []
     for r in rows:
@@ -122,48 +118,34 @@ def mark_reviewed(body: MarkReviewedRequest):
     """Batch mark transactions as reviewed."""
     if not body.txn_ids:
         raise HTTPException(status_code=400, detail="txn_ids required")
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         updated = 0
         for txn_id in body.txn_ids:
             cur.execute(
                 "UPDATE transactions SET reviewed_at = NOW(), updated_at = NOW() "
                 "WHERE id = %s AND reviewed_at IS NULL", (txn_id,))
             updated += cur.rowcount
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok", "reviewed": updated}
 
 
 @router.post("/mark-all-reviewed")
 def mark_all_reviewed():
     """Mark ALL unreviewed, categorized, non-pending transactions as reviewed."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute(
             "UPDATE transactions SET reviewed_at = NOW(), updated_at = NOW() "
             "WHERE reviewed_at IS NULL AND category_id IS NOT NULL "
             "AND pending = FALSE AND is_transfer = FALSE")
         count = cur.rowcount
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok", "reviewed": count}
 
 
 @router.get("/counts")
 def review_counts():
     """Quick counts for dashboard badge."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cur.execute("SELECT COUNT(*) FROM transactions WHERE category_id IS NULL AND pending = FALSE AND is_transfer = FALSE")
         uncat = cur.fetchone()[0]
         cur.execute("SELECT COUNT(*) FROM transactions WHERE category_source = 'ai' AND reviewed_at IS NULL AND pending = FALSE")
         ai = cur.fetchone()[0]
-    finally:
-        db_put(conn)
     return {"uncategorized": uncat, "ai_unreviewed": ai, "total": uncat + ai}

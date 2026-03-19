@@ -1,11 +1,12 @@
 """Investment transactions router — buy/sell/dividend/reinvest CRUD + dividend income."""
 from datetime import date, timedelta
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from db import _audit, db_conn, db_put
+from db import _audit, db_read, db_transaction
 
 router = APIRouter(prefix="/api/investment-txns", tags=["investments"])
 
@@ -15,7 +16,7 @@ VALID_TYPES = {"buy", "sell", "dividend", "reinvest", "fee", "split", "transfer_
 class InvTxnCreate(BaseModel):
     holding_id: int
     txn_type: str
-    txn_date: str
+    txn_date: date          # A.3: was str, now date
     shares: Optional[float] = None
     price_per_share: Optional[float] = None
     total_amount: float
@@ -26,9 +27,7 @@ class InvTxnCreate(BaseModel):
 @router.get("")
 def list_investment_txns(holding_id: Optional[int] = None, account_id: Optional[str] = None,
                          txn_type: Optional[str] = None, limit: int = 100):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         filters = ["1=1"]
         params = []
         if holding_id:
@@ -47,8 +46,6 @@ def list_investment_txns(holding_id: Optional[int] = None, account_id: Optional[
                 ORDER BY it.txn_date DESC, it.id DESC
                 LIMIT %s""", params + [limit])
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     return [{"id": r[0], "holding_id": r[1], "ticker": r[2], "holding_name": r[3],
              "account_id": r[4], "type": r[5],
              "date": r[6].isoformat() if r[6] else None,
@@ -62,9 +59,7 @@ def list_investment_txns(holding_id: Optional[int] = None, account_id: Optional[
 def create_investment_txn(body: InvTxnCreate):
     if body.txn_type not in VALID_TYPES:
         raise HTTPException(status_code=400, detail=f"txn_type must be: {', '.join(sorted(VALID_TYPES))}")
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_transaction() as cur:
         cur.execute("SELECT id, account_id FROM holdings WHERE id = %s", (body.holding_id,))
         h = cur.fetchone()
         if not h:
@@ -93,60 +88,58 @@ def create_investment_txn(body: InvTxnCreate):
         if body.txn_type == "sell" and body.shares and body.shares > 0:
             _close_lots_fifo(cur, body.holding_id, body.shares,
                             body.price_per_share or 0, body.txn_date)
-
-        conn.commit()
-    except HTTPException:
-        conn.rollback()
-        raise
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db_put(conn)
     return {"id": txn_id, "type": body.txn_type}
 
 
 @router.delete("/{txn_id}")
 def delete_investment_txn(txn_id: int):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
-        # Remove associated tax lot if it's a buy
+    with db_transaction() as cur:
+        # A.4: Guard — refuse to delete if lot partially closed
+        cur.execute(
+            "SELECT id, shares_purchased, shares_remaining FROM tax_lots WHERE inv_txn_id = %s",
+            (txn_id,))
+        lots = cur.fetchall()
+        for lot_id, purchased, remaining in lots:
+            if float(purchased) != float(remaining):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot delete: tax lot has been partially closed by sell transactions. "
+                           "A FIFO rebuild is required to safely remove historical transactions.")
         cur.execute("DELETE FROM tax_lots WHERE inv_txn_id = %s", (txn_id,))
         cur.execute("DELETE FROM investment_transactions WHERE id = %s", (txn_id,))
         if cur.rowcount == 0:
             raise HTTPException(status_code=404, detail="Not found")
-        conn.commit()
-    finally:
-        db_put(conn)
     return {"status": "ok"}
 
 
 def _close_lots_fifo(cur, holding_id, shares_to_sell, sell_price, sell_date):
-    """Close tax lots using FIFO method."""
+    """Close tax lots using FIFO method. Uses Decimal for precision (B.2)."""
     cur.execute(
         "SELECT id, shares_remaining, cost_basis_per_share, open_date "
         "FROM tax_lots WHERE holding_id = %s AND shares_remaining > 0 "
         "ORDER BY open_date ASC", (holding_id,))
     lots = cur.fetchall()
-    remaining = shares_to_sell
+    remaining = Decimal(str(shares_to_sell))
+    sell_px = Decimal(str(sell_price))
     for lot_id, lot_shares, lot_basis, open_date in lots:
         if remaining <= 0:
             break
-        close_qty = min(remaining, float(lot_shares))
-        new_remaining = float(lot_shares) - close_qty
-        gain = round(close_qty * (sell_price - float(lot_basis)), 2)
+        ls = Decimal(str(lot_shares))
+        lb = Decimal(str(lot_basis))
+        close_qty = min(remaining, ls)
+        new_remaining = ls - close_qty
+        gain = (close_qty * (sell_px - lb)).quantize(Decimal('0.01'))
         is_long = (sell_date - open_date).days > 365 if sell_date and open_date else None
-        if new_remaining < 0.0001:
+        if new_remaining < Decimal('0.0001'):
             cur.execute(
                 "UPDATE tax_lots SET shares_remaining = 0, basis_remaining = 0, "
                 "closed_date = %s, close_price = %s, realized_gain = %s, is_long_term = %s "
-                "WHERE id = %s", (sell_date, sell_price, gain, is_long, lot_id))
+                "WHERE id = %s", (sell_date, float(sell_px), float(gain), is_long, lot_id))
         else:
-            new_basis = round(new_remaining * float(lot_basis), 2)
+            new_basis = (new_remaining * lb).quantize(Decimal('0.01'))
             cur.execute(
                 "UPDATE tax_lots SET shares_remaining = %s, basis_remaining = %s WHERE id = %s",
-                (new_remaining, new_basis, lot_id))
+                (float(new_remaining), float(new_basis), lot_id))
         remaining -= close_qty
 
 
@@ -155,9 +148,7 @@ def _close_lots_fifo(cur, holding_id, shares_to_sell, sell_price, sell_date):
 @router.get("/dividends")
 def dividend_income(months: int = 12, holding_id: Optional[int] = None):
     """Dividend income by month and holding."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         cutoff = date.today() - timedelta(days=months * 31)
         filters = ["it.txn_type = 'dividend'", "it.txn_date >= %s"]
         params = [cutoff]
@@ -183,8 +174,6 @@ def dividend_income(months: int = 12, holding_id: Optional[int] = None):
 
         total = sum(m["amount"] for m in monthly)
         annual_est = (total / months * 12) if months > 0 else 0
-    finally:
-        db_put(conn)
     return {"monthly": monthly, "by_holding": by_holding,
             "total": round(total, 2), "annual_estimate": round(annual_est, 2),
             "months": months}
@@ -194,9 +183,7 @@ def dividend_income(months: int = 12, holding_id: Optional[int] = None):
 
 @router.get("/lots/{holding_id}")
 def get_lots(holding_id: int, include_closed: bool = False):
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         filters = ["tl.holding_id = %s"]
         params = [holding_id]
         if not include_closed:
@@ -208,8 +195,6 @@ def get_lots(holding_id: int, include_closed: bool = False):
                 FROM tax_lots tl WHERE {' AND '.join(filters)}
                 ORDER BY tl.open_date ASC""", params)
         rows = cur.fetchall()
-    finally:
-        db_put(conn)
     return [{"id": r[0], "open_date": r[1].isoformat() if r[1] else None,
              "shares_purchased": float(r[2]), "cost_basis_per_share": float(r[3]),
              "shares_remaining": float(r[4]), "basis_remaining": float(r[5]),
@@ -222,9 +207,7 @@ def get_lots(holding_id: int, include_closed: bool = False):
 @router.get("/gains")
 def gains_summary():
     """Unrealized + realized gain/loss across all holdings."""
-    conn = db_conn()
-    try:
-        cur = conn.cursor()
+    with db_read() as cur:
         # Unrealized: open lots vs current price
         cur.execute(
             """SELECT h.id, h.ticker, h.name, h.last_price, h.cost_basis,
@@ -245,8 +228,6 @@ def gains_summary():
             "COALESCE(SUM(CASE WHEN NOT is_long_term THEN realized_gain ELSE 0 END), 0) "
             "FROM tax_lots WHERE closed_date IS NOT NULL")
         realized = cur.fetchone()
-    finally:
-        db_put(conn)
 
     items = []
     total_unrealized = 0
