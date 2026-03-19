@@ -175,13 +175,14 @@ def categorize_apply(body: CategorizeApplyRequest):
         for item in body.items:
             cur.execute("SELECT category_id, category_source FROM transactions WHERE id = %s", (item.txn_id,))
             old = cur.fetchone()
-            # AI-applied: set category_manual=TRUE (protect from sync overwrite)
-            # but also tag category_source so provenance is clear
             source_tag = item.source if item.source in ("ai", "rule", "user") else "ai"
+            # Only lock (category_manual=TRUE) for explicit user edits.
+            # AI/rule-accepted suggestions stay soft so rules can correct later.
+            is_manual = source_tag == "user"
             cur.execute(
-                "UPDATE transactions SET category_id = %s, category_manual = TRUE, "
+                "UPDATE transactions SET category_id = %s, category_manual = %s, "
                 "category_source = %s, updated_at = NOW() "
-                "WHERE id = %s", (item.category_id, source_tag, item.txn_id))
+                "WHERE id = %s", (item.category_id, is_manual, source_tag, item.txn_id))
             applied += 1
             _audit(cur, "transaction", item.txn_id, "categorize", source=source_tag,
                    field_name="category_id", old_value=old[0] if old else None, new_value=item.category_id)
