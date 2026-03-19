@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from db import close_pool, db_conn, db_put
+from db import close_pool, get_pool
 from migrate import run_migrations
 
 logging.basicConfig(level=logging.INFO)
@@ -21,7 +21,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    conn = db_conn()
+    conn = get_pool().getconn()
     try:
         logger.info("DB pool ready")
         run_migrations(conn)
@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
         logger.exception("Startup failed")
         raise
     finally:
-        db_put(conn)
+        get_pool().putconn(conn)
     yield
     close_pool()
 
