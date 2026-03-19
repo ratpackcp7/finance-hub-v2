@@ -266,6 +266,7 @@ async def csv_apply(file: UploadFile = File(...), config: str = Form(...)):
         batch_id = cur.fetchone()[0]
 
         added = skipped = dupes = errors = 0
+        new_txn_ids = []  # B.1: track new txn IDs for scoped rule application
 
         for i, row in enumerate(data_rows):
             if len(row) < len(headers):
@@ -313,7 +314,7 @@ async def csv_apply(file: UploadFile = File(...), config: str = Form(...)):
                 "AND ABS(amount - %s) < 0.01 AND description = %s LIMIT 1",
                 (account_id, date_val, amount, description))
             if cur.fetchone():
-                dupes += 1  # C.5: count duplicates
+                dupes += 1
                 skipped += 1
                 continue
 
@@ -325,6 +326,7 @@ async def csv_apply(file: UploadFile = File(...), config: str = Form(...)):
             # Check if this generated ID already exists
             cur.execute("SELECT id FROM transactions WHERE id = %s", (txn_id,))
             if cur.fetchone():
+                dupes += 1   # C.5: count ID-collision dupes too
                 skipped += 1
                 continue
 
@@ -334,13 +336,14 @@ async def csv_apply(file: UploadFile = File(...), config: str = Form(...)):
                 "VALUES (%s, %s, %s, %s, %s, FALSE, %s, %s, %s, NULL)",
                 (txn_id, account_id, date_val, amount, description, batch_id, batch_id, batch_id))
             added += 1
+            new_txn_ids.append(txn_id)  # B.1: collect for scoped rule application
 
             _audit(cur, "transaction", txn_id, "csv_import", source="csv",
                    field_name="import_batch_id", new_value=batch_id)
 
-        # Apply payee rules to new transactions
+        # B.1: Apply payee rules only to newly imported transactions
         from syncer import apply_payee_rules
-        categorized = apply_payee_rules(cur)
+        categorized = apply_payee_rules(cur, txn_ids=new_txn_ids)
 
         # Close batch
         cur.execute(
@@ -363,6 +366,7 @@ async def csv_apply(file: UploadFile = File(...), config: str = Form(...)):
         "batch_id": batch_id,
         "added": added,
         "skipped": skipped,
+        "dupes": dupes,
         "errors": errors,
         "auto_categorized": categorized,
         "file_name": file.filename,

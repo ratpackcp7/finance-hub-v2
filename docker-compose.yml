@@ -21,13 +21,13 @@ services:
       DB_PORT: 5432
       DB_NAME: fhub
       DB_USER: fhub
-      TELEGRAM_CHAT_ID: "8697133440"
     secrets:
       - db_password
       - simplefin_access_url
       - app_secret_key
       - openrouter_key
       - telegram_bot_token
+      - telegram_chat_id
 
   worker:
     build:
@@ -49,12 +49,12 @@ services:
       DB_NAME: fhub
       DB_USER: fhub
       SYNC_HOUR: "6"
-      TELEGRAM_CHAT_ID: "8697133440"
       SYNC_MINUTE: "0"
     secrets:
       - db_password
       - simplefin_access_url
       - telegram_bot_token
+      - telegram_chat_id
 
   db:
     image: postgres:16-alpine
@@ -95,3 +95,5 @@ secrets:
     file: ./secrets/openrouter_key
   telegram_bot_token:
     file: ./secrets/telegram_bot_token
+  telegram_chat_id:
+    file: ./secrets/telegram_chat_id

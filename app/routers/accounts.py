@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from db import ACCOUNT_TYPES, _audit, db_read, db_transaction
+from shared.summary import take_balance_snapshot as _shared_take_snapshot
 
 router = APIRouter(prefix="/api", tags=["accounts"])
 
@@ -70,7 +71,6 @@ def patch_account(acct_id: str, body: AccountPatch):
             _audit(cur, "account", acct_id, "update", field_name="on_budget",
                    old_value=str(old_ob[0]) if old_ob else None, new_value=str(body.on_budget))
 
-        # Credit card / loan metadata
         meta_fields = {
             "payment_due_day": body.payment_due_day,
             "minimum_payment": body.minimum_payment,
@@ -106,17 +106,15 @@ def net_worth():
 
 
 def _take_snapshot(conn):
-    cur = conn.cursor()
-    today = date.today()
-    cur.execute(
-        """INSERT INTO balance_snapshots (snapshot_date, account_id, account_name, account_type, balance)
-           SELECT %s, id, name, COALESCE(account_type, 'checking'), balance
-           FROM accounts WHERE hidden = FALSE AND balance IS NOT NULL
-           ON CONFLICT (snapshot_date, account_id) DO UPDATE SET
-             balance = EXCLUDED.balance, account_name = EXCLUDED.account_name, account_type = EXCLUDED.account_type""",
-        (today,))
-    count = cur.rowcount
-    return count
+    """C.7: Delegates to shared.summary.take_balance_snapshot.
+
+    Accepts either a connection (from worker) or cursor (from db_transaction).
+    """
+    if hasattr(conn, 'description'):
+        return _shared_take_snapshot(conn)
+    else:
+        cur = conn.cursor()
+        return _shared_take_snapshot(cur)
 
 
 @router.post("/snapshots/take")
@@ -124,7 +122,6 @@ def take_snapshot():
     with db_transaction() as cur:
         count = _take_snapshot(cur)
     return {"status": "ok", "accounts": count, "date": date.today().isoformat()}
-
 
 
 @router.get("/net-worth/breakdown")
@@ -150,14 +147,11 @@ def net_worth_breakdown():
 def debt_summary():
     """Loan accounts with payment history for payoff tracking."""
     with db_read() as cur:
-        # Get loan/mortgage accounts
         cur.execute(
             "SELECT id, name, COALESCE(account_type, 'checking'), balance "
             "FROM accounts WHERE hidden = FALSE AND account_type IN ('loan', 'mortgage') "
             "ORDER BY balance ASC")
         accts = cur.fetchall()
-        
-        # Get balance snapshots for these accounts
         result = []
         for a in accts:
             cur.execute(
@@ -186,7 +180,6 @@ def investment_history(months: int = 12):
             "AND a.hidden = FALSE AND bs.snapshot_date >= %s "
             "ORDER BY bs.snapshot_date ASC", (cutoff,))
         rows = cur.fetchall()
-    # Group by account
     by_acct = {}
     for snap_date, acct_id, acct_name, acct_type, balance in rows:
         if acct_id not in by_acct:
@@ -196,21 +189,37 @@ def investment_history(months: int = 12):
 
 
 @router.get("/dividends/summary")
-def dividend_summary():
-    """Dividend income from investment accounts."""
+def dividend_summary(months: int = 12):
+    """Dividend income from investment accounts.
+
+    C.4: Scoped to last N months and filtered to dividend-like transactions
+    (matching common dividend payee patterns or category, excluding internal
+    transfers and reinvestment pairs).
+    """
     with db_read() as cur:
-        # Positive transactions in investment/retirement/brokerage accounts
-        # that represent real income (not reinvestment pairs)
+        cutoff = date.today() - timedelta(days=months * 31)
         cur.execute("""
             SELECT DATE_TRUNC('month', t.posted)::date AS month,
                    t.payee, a.name AS account_name, SUM(t.amount) AS total
             FROM transactions t
             JOIN accounts a ON a.id = t.account_id
+            LEFT JOIN categories c ON t.category_id = c.id
             WHERE a.account_type IN ('investment', 'retirement', 'brokerage')
             AND t.amount > 0
-                        GROUP BY 1, 2, 3
+            AND t.is_transfer = FALSE
+            AND t.posted >= %s
+            AND (
+                lower(COALESCE(t.payee, t.description, '')) LIKE '%%dividend%%'
+                OR lower(COALESCE(t.payee, t.description, '')) LIKE '%%distribution%%'
+                OR lower(COALESCE(t.payee, t.description, '')) LIKE '%%div payment%%'
+                OR lower(COALESCE(t.payee, t.description, '')) LIKE '%%interest%%'
+                OR lower(COALESCE(t.payee, t.description, '')) LIKE '%%cap gains%%'
+                OR lower(COALESCE(t.payee, t.description, '')) LIKE '%%capital gain%%'
+                OR lower(COALESCE(c.name, '')) IN ('dividends', 'dividend income', 'investment income', 'interest')
+            )
+            GROUP BY 1, 2, 3
             ORDER BY 1 DESC, 4 DESC
-        """)
+        """, (cutoff,))
         rows = cur.fetchall()
     entries = []
     monthly_totals = {}
@@ -220,7 +229,8 @@ def dividend_summary():
         monthly_totals[m] = monthly_totals.get(m, 0) + float(total)
     return {
         "entries": entries,
-        "monthly_totals": [{"month": m, "total": t} for m, t in sorted(monthly_totals.items())]
+        "monthly_totals": [{"month": m, "total": t} for m, t in sorted(monthly_totals.items())],
+        "months": months,
     }
 
 
@@ -252,7 +262,6 @@ def investment_performance(months: int = 0):
             "cumulative_returns": float(r[6]) if r[6] else 0,
             "ending_balance": float(r[7]) if r[7] else 0,
         })
-    # Summary stats
     total_deposits = sum(r["deposits"] for r in records)
     total_returns = records[-1]["cumulative_returns"] if records else 0
     total_income = sum(r["income_returns"] for r in records)

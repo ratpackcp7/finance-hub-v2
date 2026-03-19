@@ -15,6 +15,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from shared.syncer import run_sync
+from shared.summary import get_month_range, monthly_spending_summary, take_balance_snapshot, net_worth_at
 
 logging.basicConfig(
     level=logging.INFO,
@@ -59,22 +60,12 @@ def get_pool():
 # Scheduled jobs
 # ─────────────────────────────────────────────
 
-def take_balance_snapshot(conn):
-    """Record current account balances. Idempotent per date."""
+def do_balance_snapshot(conn):
+    """C.7: Delegate to shared helper."""
     cur = conn.cursor()
-    today = date.today()
-    cur.execute("""
-        INSERT INTO balance_snapshots (snapshot_date, account_id, account_name, account_type, balance)
-        SELECT %s, id, name, COALESCE(account_type, 'checking'), balance
-        FROM accounts WHERE hidden = FALSE AND on_budget = TRUE AND balance IS NOT NULL
-        ON CONFLICT (snapshot_date, account_id) DO UPDATE SET
-            balance = EXCLUDED.balance,
-            account_name = EXCLUDED.account_name,
-            account_type = EXCLUDED.account_type
-    """, (today,))
-    count = cur.rowcount
+    count = take_balance_snapshot(cur)
     conn.commit()
-    logger.info("Balance snapshot: %d accounts for %s", count, today)
+    logger.info("Balance snapshot: %d accounts for %s", count, date.today())
     return count
 
 
@@ -103,8 +94,7 @@ def take_goal_snapshot(conn):
 
 
 def purge_old_payloads(conn):
-    """Null out raw_payload on old import batches + per-txn raw JSON.
-    Keeps batch metadata (counts, status, timestamps) forever."""
+    """Null out raw_payload on old import batches + per-txn raw JSON."""
     cur = conn.cursor()
     cur.execute("SELECT purge_old_payloads(%s)", (RETENTION_DAYS,))
     batch_purged = cur.fetchone()[0]
@@ -164,14 +154,13 @@ def scheduled_sync():
         result = run_sync(conn)
         logger.info("Scheduled sync result: %s", result)
         try:
-            take_balance_snapshot(conn)
+            do_balance_snapshot(conn)
         except Exception as e:
             logger.error("Balance snapshot failed: %s", e)
         try:
             refresh_holding_prices(conn)
         except Exception as e:
             logger.error("Holding price refresh failed: %s", e)
-        # Refresh benchmark prices (SPY, VTI, QQQ)
         try:
             cur = conn.cursor()
             for bench_ticker in ["SPY", "VTI", "QQQ"]:
@@ -224,16 +213,24 @@ def wait_for_db():
 
 
 def send_monthly_digest():
-    """Send monthly spending digest to Telegram on the 1st of each month."""
-    import os
-    from pathlib import Path
+    """Send monthly spending digest to Telegram on the 1st of each month.
 
+    C.7: Uses shared monthly_spending_summary helper instead of inline queries.
+    C.8: Reads chat ID from Docker secret.
+    """
     token_path = Path("/run/secrets/telegram_bot_token")
     if token_path.exists():
         bot_token = token_path.read_text().strip()
     else:
         bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+
+    # C.8: Read chat ID from Docker secret
+    chat_id_path = Path("/run/secrets/telegram_chat_id")
+    if chat_id_path.exists():
+        chat_id = chat_id_path.read_text().strip()
+    else:
+        chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+
     if not bot_token or not chat_id:
         logger.warning("Telegram not configured — skipping monthly digest")
         return
@@ -242,62 +239,22 @@ def send_monthly_digest():
     conn = pool.getconn()
     try:
         import httpx
-        import calendar
-        from datetime import datetime as dt_cls
+        from datetime import timedelta
 
-        # Last month
-        today = date.today()
-        first_of_this = date(today.year, today.month, 1)
-        last_month_end = first_of_this - timedelta(days=1)
-        yr, mo = last_month_end.year, last_month_end.month
-        last_day = calendar.monthrange(yr, mo)[1]
-        start = date(yr, mo, 1)
-        end = date(yr, mo, last_day)
-        label = f"{yr}-{mo:02d}"
-
+        # C.7: Use shared helpers
+        start, end, label = get_month_range()
         cur = conn.cursor()
+        summary = monthly_spending_summary(cur, start, end)
+        nw_val = net_worth_at(cur, end)
 
-        # Income
-        cur.execute(
-            "SELECT COALESCE(SUM(t.amount), 0) FROM transactions t "
-            "LEFT JOIN categories c ON t.category_id = c.id "
-            "WHERE t.amount > 0 AND t.pending = FALSE AND t.is_transfer = FALSE "
-            "AND COALESCE(c.is_income, FALSE) = TRUE "
-            "AND t.posted >= %s AND t.posted <= %s", (start, end))
-        income = float(cur.fetchone()[0])
+        income = summary["income"]
+        spending = summary["spending"]
+        net = summary["net"]
+        rate = summary["savings_rate"]
+        top_cats = summary["top_categories"]
 
-        # Spending
-        cur.execute(
-            "SELECT COALESCE(SUM(ABS(t.amount)), 0) FROM spending_items t "
-            "LEFT JOIN categories c ON t.category_id = c.id "
-            "WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE "
-            "AND COALESCE(c.name, '') NOT IN ('Credit Card Pay', 'Transfer') "
-            "AND t.posted >= %s AND t.posted <= %s", (start, end))
-        spending = float(cur.fetchone()[0])
-
-        net = income - spending
-        rate = ((income - spending) / income * 100) if income > 0 else 0
-
-        # Top 5 categories
-        cur.execute(
-            "SELECT COALESCE(c.name, 'Other'), SUM(ABS(t.amount)) "
-            "FROM spending_items t LEFT JOIN categories c ON t.category_id = c.id "
-            "WHERE t.amount < 0 AND t.pending = FALSE AND t.is_transfer = FALSE "
-            "AND COALESCE(c.name, '') NOT IN ('Credit Card Pay', 'Transfer') "
-            "AND t.posted >= %s AND t.posted <= %s "
-            "GROUP BY c.name ORDER BY 2 DESC LIMIT 5", (start, end))
-        top_cats = [(r[0], float(r[1])) for r in cur.fetchall()]
-
-        # Net worth
-        cur.execute(
-            "SELECT SUM(balance) FROM balance_snapshots WHERE snapshot_date = ("
-            "SELECT MAX(snapshot_date) FROM balance_snapshots WHERE snapshot_date <= %s)", (end,))
-        nw = cur.fetchone()
-        nw_val = float(nw[0]) if nw and nw[0] else None
-
-        # Format message
         lines = [
-            f"\U0001f4b0 *Finance Hub — {label} Digest*",
+            f"\U0001f4b0 *Finance Hub \u2014 {label} Digest*",
             "",
             f"\U0001f4ca *Summary*",
             f"  Income: ${income:,.2f}",
@@ -307,14 +264,13 @@ def send_monthly_digest():
         ]
         if top_cats:
             lines += ["", "\U0001f3f7 *Top Spending*"]
-            for i, (cat, amt) in enumerate(top_cats, 1):
-                lines.append(f"  {i}. {cat}: ${amt:,.2f}")
+            for i, c in enumerate(top_cats, 1):
+                lines.append(f"  {i}. {c['category']}: ${c['amount']:,.2f}")
         if nw_val is not None:
             lines += ["", f"\U0001f4c8 Net Worth: ${nw_val:,.2f}"]
         lines += ["", "_Generated by Finance Hub_"]
         text = "\n".join(lines)
 
-        # Send
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         with httpx.Client(timeout=15) as client:
             resp = client.post(url, json={
@@ -352,7 +308,6 @@ def main():
         name="Evening SimpleFIN sync",
     )
 
-    # Monthly digest: 1st of each month at 9AM CT
     scheduler.add_job(
         send_monthly_digest,
         CronTrigger(day=1, hour=9, minute=0),

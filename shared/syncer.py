@@ -87,10 +87,20 @@ def apply_payee_rules(cur, txn_ids: list[str] = None) -> int:
     rules = cur.fetchall()
     if not rules: return 0
     if txn_ids:
+        if not txn_ids:
+            return 0
         placeholders = ",".join(["%s"] * len(txn_ids))
-        cur.execute(f"SELECT id, description, payee, amount FROM transactions WHERE id IN ({placeholders}) AND category_id IS NULL AND category_manual = FALSE", txn_ids)
+        # B.6: skip category_locked rows
+        cur.execute(
+            f"SELECT id, description, payee, amount FROM transactions "
+            f"WHERE id IN ({placeholders}) AND category_id IS NULL "
+            f"AND category_manual = FALSE AND category_locked = FALSE",
+            txn_ids)
     else:
-        cur.execute("SELECT id, description, payee, amount FROM transactions WHERE category_id IS NULL AND category_manual = FALSE")
+        # B.6: skip category_locked rows
+        cur.execute(
+            "SELECT id, description, payee, amount FROM transactions "
+            "WHERE category_id IS NULL AND category_manual = FALSE AND category_locked = FALSE")
     txns = cur.fetchall()
     if not txns: return 0
     categorized = 0
@@ -114,7 +124,11 @@ def apply_payee_rules(cur, txn_ids: list[str] = None) -> int:
             if set_xfer is not None:
                 updates.append("is_transfer = %s"); params.append(set_xfer)
             params.append(txn_id)
-            cur.execute(f"UPDATE transactions SET {', '.join(updates)} WHERE id = %s AND category_manual = FALSE", params)
+            # B.6: also guard the UPDATE
+            cur.execute(
+                f"UPDATE transactions SET {', '.join(updates)} "
+                f"WHERE id = %s AND category_manual = FALSE AND category_locked = FALSE",
+                params)
             if tag_id:
                 cur.execute("INSERT INTO transaction_tags (txn_id, tag_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (txn_id, tag_id))
             categorized += 1; break

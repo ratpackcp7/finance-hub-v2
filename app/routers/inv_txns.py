@@ -104,7 +104,7 @@ def delete_investment_txn(txn_id: int):
                 raise HTTPException(
                     status_code=400,
                     detail="Cannot delete: tax lot has been partially closed by sell transactions. "
-                           "A FIFO rebuild is required to safely remove historical transactions.")
+                           "Use POST /api/investment-txns/rebuild-lots/{holding_id} to rebuild FIFO state first.")
         cur.execute("DELETE FROM tax_lots WHERE inv_txn_id = %s", (txn_id,))
         cur.execute("DELETE FROM investment_transactions WHERE id = %s", (txn_id,))
         if cur.rowcount == 0:
@@ -141,6 +141,71 @@ def _close_lots_fifo(cur, holding_id, shares_to_sell, sell_price, sell_date):
                 "UPDATE tax_lots SET shares_remaining = %s, basis_remaining = %s WHERE id = %s",
                 (float(new_remaining), float(new_basis), lot_id))
         remaining -= close_qty
+
+
+# ── C.3: FIFO Rebuild ──
+
+def rebuild_lots(cur, holding_id: int) -> dict:
+    """Delete all tax_lots for a holding and replay buy/sell transactions in date order.
+
+    This regenerates the FIFO lot state from the transaction history, allowing
+    historical corrections (deleting/editing old buy/sell txns) without leaving
+    orphaned or inconsistent lot data.
+    """
+    # Verify holding exists
+    cur.execute("SELECT id, ticker FROM holdings WHERE id = %s", (holding_id,))
+    h = cur.fetchone()
+    if not h:
+        raise HTTPException(status_code=404, detail="Holding not found")
+
+    # Delete all existing lots for this holding
+    cur.execute("DELETE FROM tax_lots WHERE holding_id = %s", (holding_id,))
+    deleted_lots = cur.rowcount
+
+    # Replay all buy/sell transactions in date order (then by ID for same-date stability)
+    cur.execute(
+        "SELECT id, txn_type, txn_date, shares, price_per_share, total_amount "
+        "FROM investment_transactions "
+        "WHERE holding_id = %s AND txn_type IN ('buy', 'sell') "
+        "ORDER BY txn_date ASC, id ASC",
+        (holding_id,))
+    txns = cur.fetchall()
+
+    buys_replayed = sells_replayed = lots_created = 0
+
+    for txn_id, txn_type, txn_date, shares, price_per_share, total_amount in txns:
+        if txn_type == "buy" and shares and price_per_share:
+            basis = round(float(shares) * float(price_per_share), 2)
+            cur.execute(
+                "INSERT INTO tax_lots (holding_id, inv_txn_id, open_date, shares_purchased, "
+                "cost_basis_per_share, shares_remaining, basis_remaining) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (holding_id, txn_id, txn_date,
+                 shares, price_per_share, shares, basis))
+            buys_replayed += 1
+            lots_created += 1
+
+        elif txn_type == "sell" and shares and float(shares) > 0:
+            _close_lots_fifo(cur, holding_id, float(shares),
+                            float(price_per_share) if price_per_share else 0, txn_date)
+            sells_replayed += 1
+
+    return {
+        "holding_id": holding_id,
+        "ticker": h[1],
+        "lots_deleted": deleted_lots,
+        "lots_created": lots_created,
+        "buys_replayed": buys_replayed,
+        "sells_replayed": sells_replayed,
+    }
+
+
+@router.post("/rebuild-lots/{holding_id}")
+def rebuild_lots_endpoint(holding_id: int):
+    """Rebuild FIFO tax lots for a holding by replaying all buy/sell transactions."""
+    with db_transaction() as cur:
+        result = rebuild_lots(cur, holding_id)
+    return {"status": "ok", **result}
 
 
 # ── Dividend Income ──
@@ -208,7 +273,6 @@ def get_lots(holding_id: int, include_closed: bool = False):
 def gains_summary():
     """Unrealized + realized gain/loss across all holdings."""
     with db_read() as cur:
-        # Unrealized: open lots vs current price
         cur.execute(
             """SELECT h.id, h.ticker, h.name, h.last_price, h.cost_basis,
                       h.shares, a.name as account_name,
@@ -221,7 +285,6 @@ def gains_summary():
                ORDER BY h.shares * COALESCE(h.last_price, 0) DESC""")
         holdings = cur.fetchall()
 
-        # Realized gains from closed lots
         cur.execute(
             "SELECT COALESCE(SUM(realized_gain), 0), "
             "COALESCE(SUM(CASE WHEN is_long_term THEN realized_gain ELSE 0 END), 0), "
@@ -237,7 +300,6 @@ def gains_summary():
         h_id, ticker, name, price, flat_basis, shares, acct = r[0], r[1], r[2], r[3], r[4], r[5], r[6]
         lot_shares, lot_basis = float(r[7]), float(r[8])
 
-        # Use lot data if available, else fall back to flat cost_basis
         if lot_shares > 0:
             basis = lot_basis
             qty = lot_shares

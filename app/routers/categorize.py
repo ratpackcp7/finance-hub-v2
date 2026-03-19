@@ -51,24 +51,15 @@ def _call_openrouter(prompt: str) -> str:
 
 
 def _bucket_amount(amount: float) -> str:
-    """Redact exact dollar amounts — send size bucket to AI instead."""
     amt = abs(amount)
-    if amt < 10:
-        return "under $10"
-    elif amt < 25:
-        return "$10-25"
-    elif amt < 50:
-        return "$25-50"
-    elif amt < 100:
-        return "$50-100"
-    elif amt < 250:
-        return "$100-250"
-    elif amt < 500:
-        return "$250-500"
-    elif amt < 1000:
-        return "$500-1K"
-    else:
-        return "over $1K"
+    if amt < 10: return "under $10"
+    elif amt < 25: return "$10-25"
+    elif amt < 50: return "$25-50"
+    elif amt < 100: return "$50-100"
+    elif amt < 250: return "$100-250"
+    elif amt < 500: return "$250-500"
+    elif amt < 1000: return "$500-1K"
+    else: return "over $1K"
 
 
 def _build_ai_prompt(txns, categories):
@@ -95,9 +86,11 @@ def _parse_ai_response(raw):
 @router.get("/suggest")
 def categorize_suggest(limit: int = 100):
     with db_read() as cur:
+        # B.6: skip category_locked rows
         cur.execute(
             "SELECT t.id, t.posted, t.amount, t.description, t.payee FROM transactions t "
-            "WHERE t.category_id IS NULL AND t.pending = FALSE AND t.category_manual = FALSE "
+            "WHERE t.category_id IS NULL AND t.pending = FALSE "
+            "AND t.category_manual = FALSE AND t.category_locked = FALSE "
             "ORDER BY t.posted DESC LIMIT %s", (limit,))
         rows = cur.fetchall()
         if not rows:
@@ -166,16 +159,22 @@ class CategorizeApplyRequest(BaseModel):
 @router.post("/apply")
 def categorize_apply(body: CategorizeApplyRequest):
     with db_transaction() as cur:
-        applied = rules_created = 0
+        applied = rules_created = skipped_locked = 0
         for item in body.items:
-            cur.execute("SELECT category_id, category_source FROM transactions WHERE id = %s", (item.txn_id,))
+            # B.6: check category_locked before overwriting
+            cur.execute("SELECT category_id, category_source, category_locked FROM transactions WHERE id = %s", (item.txn_id,))
             old = cur.fetchone()
+            if not old:
+                continue
+            if old[2]:  # category_locked = TRUE
+                skipped_locked += 1
+                continue
             source_tag = item.source if item.source in ("ai", "rule", "user") else "ai"
             is_manual = source_tag == "user"
             cur.execute(
                 "UPDATE transactions SET category_id = %s, category_manual = %s, "
                 "category_source = %s, updated_at = NOW() "
-                "WHERE id = %s", (item.category_id, is_manual, source_tag, item.txn_id))
+                "WHERE id = %s AND category_locked = FALSE", (item.category_id, is_manual, source_tag, item.txn_id))
             applied += 1
             _audit(cur, "transaction", item.txn_id, "categorize", source=source_tag,
                    field_name="category_id", old_value=old[0] if old else None, new_value=item.category_id)
@@ -188,4 +187,7 @@ def categorize_apply(body: CategorizeApplyRequest):
                         "INSERT INTO payee_rules (match_pattern, payee_name, category_id, priority) "
                         "VALUES (%s, %s, %s, 0)", (pattern, item.payee, item.category_id))
                     rules_created += 1
-    return {"applied": applied, "rules_created": rules_created}
+    result = {"applied": applied, "rules_created": rules_created}
+    if skipped_locked:
+        result["skipped_locked"] = skipped_locked
+    return result

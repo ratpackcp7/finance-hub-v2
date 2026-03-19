@@ -50,6 +50,7 @@ def create_payee_rule(body: PayeeRuleCreate):
                 "VALUES (%s, %s, %s, %s) RETURNING id",
                 (pattern, body.payee_name, body.category_id, body.priority))
             new_id = cur.fetchone()[0]
+        # B.6: skip category_locked rows in retroactive application
         cur.execute(
             """UPDATE transactions
                SET category_id = %s,
@@ -57,6 +58,7 @@ def create_payee_rule(body: PayeeRuleCreate):
                    category_source = 'rule',
                    updated_at = NOW()
                WHERE category_id IS NULL AND category_manual = FALSE
+               AND category_locked = FALSE
                AND (lower(description) LIKE %s OR lower(COALESCE(payee,'')) LIKE %s)""",
             (body.category_id, body.payee_name, f"%{pattern}%", f"%{pattern}%"))
         retro = cur.rowcount
@@ -107,7 +109,8 @@ def create_advanced_rule(body: AdvancedRuleCreate):
              body.amount_min, body.amount_max, body.set_transfer,
              body.tag_id, body.description))
         new_id = cur.fetchone()[0]
-        conds = ["category_id IS NULL", "category_manual = FALSE",
+        # B.6: skip category_locked rows in retroactive application
+        conds = ["category_id IS NULL", "category_manual = FALSE", "category_locked = FALSE",
                  "(lower(description) LIKE %s OR lower(COALESCE(payee,'')) LIKE %s)"]
         params = [f"%{pattern}%", f"%{pattern}%"]
         if body.amount_min is not None:
